@@ -1,0 +1,15 @@
+#### 1. 杂项
++ 将`C++/AlgoAndADT`移植到`windows`下: 在`windows`下，我的`quicksort`超过了`std::sort`
+
+#### 2. 杂项
++ 静态分析工具：`cppcheck`
+    + `cppcheck --enable=all --inconclusive --std=posix --std=c++11 --suppress=missingIncludeSystem .`
+        + 参数作用是：开启所有选项；包括不精确的猜测；不尝试分析以`<>`包含的系统头文件
++ 静态分析工具：vs2013，编译选项`/analyze`
+    + 只在vs2012+才有
++ `gconv`，代码覆盖率分析
+    1. 为`g++`增加编译选项：`--coverage`。等价于编译选项`-fprofile-arcs`+`-ftest-coverage`加上链接选项`-lgcov`
+    2. 编译完成后，会生成`*.gcno`文件，里面记录了graph
+    3. 运行程序，会生成包含每行运行次数的数据文件`*.gcda`
+    4. 执行`gconv main.cpp`，可以逐文件的根据`main.gcda`生成`main.gcov`文件，后者是记载了每行执行次数的文本结果
+        
