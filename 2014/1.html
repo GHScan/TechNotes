@@ -1,0 +1,23 @@
+<head>
+<meta http-equiv=Content-Type content="text/html; charset=utf-8">
+</head>
+
+<ul>
+<li>5. token-threading, direct-threading对比switch-threading的一个优势</li>
+<li style="list-style: none; display: inline">
+<ul>
+<li><span style="font-family: Simsun;">&nbsp;Either every virtual machine instruction routine has a copy of NEXT at the end, or they share one copy of NEXT and jump to it. With modern processors, the shared NEXT not only costs a jump, but also dramatically increases the misprediction rate of the indirect jump on CPUs with BTBs(branch target buffer) and similar indirect branch predictors [</span><a href="http://www.complang.tuwien.ac.at/forth/threaded-code.html#jilp" style="font-family: Simsun;" target="_blank">ertl&amp;gregg03jilp</a><span style="font-family: Simsun;">]. Therefore, I recommend not to share NEXT.</span></li>
+<li><span style="font-family: Simsun;">call-threading -&gt; switch-threading -&gt; replicate-switch-threading(case &amp; goto label) -&gt; token-threading(computed goto) -&gt; direct-threading(computed goto &amp; translation) -&gt; subroutine-threading --inline--&gt; JIT</span></li>
+</ul>
+</li>
+<li><font face="Simsun">5. v8 engine: inline-caching, hiden-class</font></li>
+<li style="list-style: none; display: inline">
+<ul>
+<li><font face="Simsun">hiden-class: map translation, object layout</font></li>
+<li><font face="Simsun">inline-caching: for property access, for method call. including monomorphic callsite, polymorphic/megamorphic callsite eg.</font></li>
+<li><font face="Simsun">type feedback: crankshaft use type feedback from full-compiler's IC to do type specific optimization. eliminate some range checking, type checking</font></li>
+<li><font face="Simsun">full-compiler (baseline compiler) use counter-based profiler to detect the hotspot</font></li>
+</ul>
+</li>
+<li><font face="Simsun">14. heredoc, hereis, here-string<span style="-evernote-last-insertion-point:true;"></span></font></li>
+</ul>
