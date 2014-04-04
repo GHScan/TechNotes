@@ -197,3 +197,13 @@
 
 #### 3. 杂项
 + `C Project`: `C99ADT`, 本次添加的接口包括`list`, `linkedList`, `BST`, `hashTable`
+
+
+#### 4. 杂项
++ `C++ Project`: `Memory pool test`。基于链表的快排序，想比较一下普通的`malloc`和基于内存池的链表节点性能差距
+    + 32位下每个节点占内存8字节，因此32K的L1 cache能放4K个节点，因此，期望在2K~4K的时候，观测到内存池链表大大快于`malloc`链表，因为顺序访问所以池链表的`cacheline`是100%利用，而且因为没有分配器的`fragmentation`，所以只有池链表才能放入`cache`
+    + 令人失望的是，没有观察到期待的差距。猜测原因：链表的`n = n->next`是高度`data dependency`的，会`stalling`掉`pipeline`，所以，此时L1和L2的差距不再突出
+    + 总结下链表比数组慢的原因：
+        + 需要内存更多，`cache`的`capacity miss`更严重
+        + `access pattern`不连续，访问相邻节点的时候可能在内存中乱飞，`spatial locality`差
+        + 访问相邻元素依靠`n = n->next`，`data dependency`严重，`ILP`差，跟数组相比流水线利用率低
