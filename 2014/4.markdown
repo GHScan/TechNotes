@@ -203,7 +203,49 @@
 + `C++ Project`: `Memory pool test`。基于链表的快排序，想比较一下普通的`malloc`和基于内存池的链表节点性能差距
     + 32位下每个节点占内存8字节，因此32K的L1 cache能放4K个节点，因此，期望在2K~4K的时候，观测到内存池链表大大快于`malloc`链表，因为顺序访问所以池链表的`cacheline`是100%利用，而且因为没有分配器的`fragmentation`，所以只有池链表才能放入`cache`
     + 令人失望的是，没有观察到期待的差距。猜测原因：链表的`n = n->next`是高度`data dependency`的，会`stalling`掉`pipeline`，所以，此时L1和L2的差距不再突出
-    + 总结下链表比数组慢的原因：
-        + 需要内存更多，`cache`的`capacity miss`更严重
-        + `access pattern`不连续，访问相邻节点的时候可能在内存中乱飞，`spatial locality`差
-        + 访问相邻元素依靠`n = n->next`，`data dependency`严重，`ILP`差，跟数组相比流水线利用率低
++ 总结下链表比数组慢的原因：
+    + 需要内存更多，`cache`的`capacity miss`更严重
+    + `access pattern`不连续，访问相邻节点的时候可能在内存中乱飞，`spatial locality`差
+    + 访问相邻元素依靠`n = n->next`，`data dependency`严重，`ILP`差，跟数组相比流水线利用率低
+
+#### 6. 杂项
++ `C`语言中，`x/y`在结果为负数的时候，行为未定义，可能`floor`也可能`ceil`。
+    + 想要对`x`减`1`同时对`y`取模，想避开负数，一种做法是`(x - 1 + y) % y`，但注意括号内容可能溢出
+    + 标准定义的内容是：
+        + `x = (x/y) * y + (x%y)`。因此，如果`x/y`是`floor`，`x%y`是正；如果`x/y`是`ceil`，`x%y`是负
+        + 当`x/y`结果为正时，`floor`。此时`x%y`总为正
++ `C/C++`中不要使用下划线开头的标识符，因为可能保留给标准或编译器
++ `main`返回或`exit`的参数:
+    + 成功：`EXIT_SUCCESS`或`0`
+    + 失败：`EXIT_FAILURE`。像`-1`这样的值是不可移植的，部分系统可能把它当做成功
++ `C`语言中的`class-storage-specifier`
+    + `auto`(默认)，可能被放置内存或者寄存器中
+    + `register`，应该被放置在寄存器中。编译器试具体寄存器分配策略，可以忽视，即实现层面可能等价`auto`
+    + `volatile`，总是放在内存中，不在寄存器中缓存
++ `assert`应该实现为`void`类型的表达式
+    + 例: `#define assert(b) (void)(b || fprintf(stderr, "%s(%d): assert failed: %s\n", __FILE__, __LINE__, #b))`
++ 编写`RETURN`宏注意应该允许后面接参数。可能的做法是宏的最后是一个真正的`return`
++ `callback`+`context`常用来作为回调方案，这其实也就是`closure`
++ 实现一个`Allocator`至少应该提供以下调试帮助
+    + 未定义变量的使用：将`malloc`返回的内存初始化成固定值
+    + `Dangling pointer`的使用：将`free`的内存内容置为固定值
+    + 写越界：`free`时检测末尾字节有没被覆盖
+    + 释放非堆内存：`free`时检测指针是否是Allocator分配的
+    + `Double free`: `free`时将内存置为`freed`状态，如果发现`free`的参数是`freed`状态而非`allocated`状态，即为`double free`。当然，该法可能漏检查
+    + `Memory leaks`：退出前检测是否有没释放的内存
+    + 其中`Dangling pointer`相关的`bug`（包括`double free`）可以通过`#define FREE(p) (free(p), p = 0)`来避免
++ 怎样保证迭代期间容器不被修改？
+    + 所有写容器操作内部都会进行`++c->version`
+    + 创建迭代器时(`begin`调用)进行`it->version = c->version`，迭代结束时(比如析构)进行`assert(it->version == c->version);`
++ 求两个集合的交际，应该遍历较小的集合，然后搜集小集合中每个出现在大集合中的元素。换句话说，求交集的第一件事一定是找出小集合
++ 集合的表示方法
+    + `std::set`
+    + `Bitset`: 在全集较小的情况下，通过在一个`character map`中进行`binary search`或者`table lookup`，将一个字符转换成`[0, n)`的整数索引
++ 为何`strcmp`等`cmp`函数设计成`(-1, 0, 1)`三种状态，而不是`(<0, 0, >0)`？
+    + 避免使用者简单的进行`a - b`，该方法会溢出
++ 稀疏容器(如`sparse matrix`, `sparse array`)，往往在构造的时候要指定默认值。实现上，可以只将非默认值的`(k, v)`存储进`hash`表
++ 在实现层面，`c99`的`VLA`其实就是指针，即`int a[n]`其实是`int *a = alloca(sizeof(int) * n)`。但是语义上却必须表现得和数组一致，包括`sizeof(a) == n * sizeof(int)`哪怕只能在运行时计算
++ 计算一个`int`中有多少个`bit 1`，相比采用256的表查4次，用16的表查8次也不错，因为后者整个表都可以放在一个`cacheline`上
++ 带参宏可以用`(MACRO)`来阻止替换。如
+    1. 有两个定义`static int ADD(int a, int b) { return a + b; }`和`#define ADD(a, b) ((a)*(b))`
+    2. `(ADD)(2,3)`结果是5，而`ADD(2,3)`结果是6
