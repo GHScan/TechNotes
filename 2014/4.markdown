@@ -249,3 +249,21 @@
 + 带参宏可以用`(MACRO)`来阻止替换。如
     1. 有两个定义`static int ADD(int a, int b) { return a + b; }`和`#define ADD(a, b) ((a)*(b))`
     2. `(ADD)(2,3)`结果是5，而`ADD(2,3)`结果是6
++ `GCC`上的对齐规则有点特别：
+    + `sizeof(T) < 4`以`sizeof(T)`对齐
+    + `sizeof(T) >= 4`都以`4`对齐。`VC`没有这个特例，似乎`CSAPP`上提过`GCC`的这个曾经的设计错误
++ 计算T的对齐:
+    + `int alignOf() { struct Help{ char c; T t;}; return (long)&((Help*)0)->t; }`
++ 一种简单`hashing`算法:
+    + 生成256个[0~4G]的随机数，然后遍历输入的每个字节，以`h = (h << 1) | ranBuf[input[i]]`的方式组合起来
++ 计算平台的最大`alignment`，可以作为实现`malloc`的对齐参考(因为`linux`最大对齐只是4，因此下面这个也满足)
+    + `union MaxSize { char c; long l; long long ll; double d; long double ld; void *p; void(*f)(); };`再取`sizeof(MaxSize)`
++ `Skiplist`除了提供`map`的接口外，也可以提供`array`的接口，优点是中间插入、删除无需`memmove`以及增大时无需`realloc`
++ `C++ project`: 比较了基于链表的`quicksort`，比数组的只慢了`50%`不到，仍然快于`ANSI C`的`qsort`(后者还再慢`50%`)，看来访存影响没函数调用影响大
++ `VC`对`c99`的支持很差，甚至在`VS2013`中将文件当C编译，仍然不支持`VLA`
++ `LLVM`的字符串技巧：
+    + `StringPool`: 用`intern`来减少大量字符串时的内存占用。每个`PoolStringPtr`是基于引用计数的，不用的时候会将自己从`Pool`中移除，当然，`Ptr`之间进行`equal`、`hash`也很快
+    + `StringRef`: 不可变的字符串引用，含常指针和长度。大量字符串查找、取子串的算法都是基于它，`substr`、`split`等算法都返回`StringRef`
+    + `Twine`: `Rope`的一种，栈上的临时对象，用于将`const char*`、`string`、`StringRef`等连接成表达式树（虽然只有`+`节点），供之后`render`到`buffer`中，从而达到高效的进行`concat`的目的。
+        + `C++11`中因为有了右值引用，`string(lit1) + lit2 + lit3 + lit4`这样的表达式能够通过右值引用高效的`append`，无需`Twine`了
++ `#include "..."`的查找规则：先查找当前目录，然后再按照`-I`的顺序查找
