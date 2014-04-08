@@ -267,3 +267,23 @@
     + `Twine`: `Rope`的一种，栈上的临时对象，用于将`const char*`、`string`、`StringRef`等连接成表达式树（虽然只有`+`节点），供之后`render`到`buffer`中，从而达到高效的进行`concat`的目的。
         + `C++11`中因为有了右值引用，`string(lit1) + lit2 + lit3 + lit4`这样的表达式能够通过右值引用高效的`append`，无需`Twine`了
 + `#include "..."`的查找规则：先查找当前目录，然后再按照`-I`的顺序查找
+
+#### 7. 杂项
++ `std::map`只要求`less`，是因为，`insert/find`的时候，它利用`loop invariant`来进行`< value: n = n->left; >= value: n = n->right`的下降，道理和`lower_bound`有点类似
+
+
+#### 8. 杂项
++ 字典
+    + 静态字典：一旦创建不再修改。`ordered_array`+`binary_search`
+    + 半动态字典：只支持`insert`和`find`，不支持`remove`。`open addressing hashtable`
+    + 动态字典：`chaining hashtable`
+    + 动态字典+`min/max/to_ordered_array/kth_element`: `rbtree`, `skiplist`
++ 编写各种`Allocator`的时候，一定要考虑对齐问题！
+    + `NodePool`: 一般`N`都是`sizeof(T)`，而`Chunk`又是`PAGE_SIZE`对齐的，因此一般不需要额外考虑对齐问题
+    + `StackPool`: 考虑对齐问题后，分配不再是简单的`p += size`!
++ `C++ project`: `compaction with handle`
+    + 通过`Handle`来代替指针，从而具备`compaction`的能力，希望看到比`raw pointer`更好的性能表现。可惜只比`raw pointer`快一点点。另外为了追踪`size/align`信息和维护`handle manager`，每个`alloc的`overhead`都很大(16~20字节)
++ `C++ project`: `range`，在`C++11`中提供类似`python`的用法，彻底避免手写循环
++ `C++ project`: `STLAllocator`, 包括`stack`内存池和`freelist`内存池，分别用于临时对象和持久对象
+    + `freelist`：当`allocator`要求元素个数大于1时，从`::malloc`分配
+    + `stack`：当总申请大于`PAGE_SIZE`时，从`::malloc`分配
