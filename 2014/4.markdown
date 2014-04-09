@@ -287,3 +287,12 @@
 + `C++ project`: `STLAllocator`, 包括`stack`内存池和`freelist`内存池，分别用于临时对象和持久对象
     + `freelist`：当`allocator`要求元素个数大于1时，从`::malloc`分配
     + `stack`：当总申请大于`PAGE_SIZE`时，从`::malloc`分配
+
+#### 9. 杂项
++ `C++ project`: `findMaxPrime`, 用来查找`2^i`下最大的素数，从而用于`hash`表`rehash`时的尺寸
+    + 费尔马小定理: 素数`p`，`[1, p)`的数`a`，应该有`(a^(p-1))%p==1`
+    + 这里判断`p`是否是素数，就是随机10~20个`a`，然后检测是否`(a^(p-1))%p==1`
++ `C++ project`: `StringIntering.OpenAddressingHashtable`, 因为`loadfactor`控制在不超过`0.5`(此时`clustering`不严重; 如果为省内存，`loadfactor`接近1，可能就需要二次探测或`double hash`了)，而且不会有删除，因此用的线性探测法
++ `C++ project`: `Random`, 线性同余随机数发生器
+    + `N(i+1)=(A * N(i)+C)%M`: 常见的`M`是2^32
++ `C++ project`: `ADTAndAlgo.hash.h`实现`ChaningHashtable`和`OpenAddressingHashTable`
