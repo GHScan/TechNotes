@@ -296,3 +296,8 @@
 + `C++ project`: `Random`, 线性同余随机数发生器
     + `N(i+1)=(A * N(i)+C)%M`: 常见的`M`是2^32
 + `C++ project`: `ADTAndAlgo.hash.h`实现`ChaningHashtable`和`OpenAddressingHashTable`
+
+#### 12. 杂项
++ `bitwise op`: 按位操作
++ `false sharing`: 又叫`cache line ping-poinging`，指多个线程访问同一个cache line，其中一个的写操作会导致另一个core的L1 cache失效
++ `bitfield`的写操作是`read+bitwise op+write`的组合，是非原子的，因此存在`race`；这和`int`的写不一样，后者是原子的
