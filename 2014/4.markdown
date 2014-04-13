@@ -297,7 +297,17 @@
     + `N(i+1)=(A * N(i)+C)%M`: 常见的`M`是2^32
 + `C++ project`: `ADTAndAlgo.hash.h`实现`ChaningHashtable`和`OpenAddressingHashTable`
 
+#### 11. 杂项
++ `CMake`的使用
+
 #### 12. 杂项
 + `bitwise op`: 按位操作
 + `false sharing`: 又叫`cache line ping-poinging`，指多个线程访问同一个cache line，其中一个的写操作会导致另一个core的L1 cache失效
 + `bitfield`的写操作是`read+bitwise op+write`的组合，是非原子的，因此存在`race`；这和`int`的写不一样，后者是原子的
+
+#### 13. 杂项
++ `Python project`: `UniqLineCounter`，对一个目录下的所有文本文件的行，计算`md5`，然后统计独立的`md5`个数，由此得到源码的非重复数
++ `Polish notation`, `Reverse polish notation`: 分别是前缀和后缀表示法
++ `Scoped hashtable`: 考虑嵌套作用域的变量名查找，最简单的是沿着栈依次查找嵌套`hash`表; 优化的实现是，以`pair<name, scopeIdx>`作为`key`，只查一次表，当然，插入、查询的规则都需要定制
++ `C++ project`: `Channel`, 两种实现方法。测试是流水线的`primes gen`
++ `C++ project`: 只用`O(n/2)`临时空间的`mergesort`
