@@ -311,3 +311,6 @@
 + `Scoped hashtable`: 考虑嵌套作用域的变量名查找，最简单的是沿着栈依次查找嵌套`hash`表; 优化的实现是，以`pair<name, scopeIdx>`作为`key`，只查一次表，当然，插入、查询的规则都需要定制
 + `C++ project`: `Channel`, 两种实现方法。测试是流水线的`primes gen`
 + `C++ project`: 只用`O(n/2)`临时空间的`mergesort`
+
+#### 14. 杂项
++ `C++ project`: `BigInteger`
