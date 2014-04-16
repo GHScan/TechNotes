@@ -314,3 +314,13 @@
 
 #### 14. 杂项
 + `C++ project`: `BigInteger`
+
+#### 15. 杂项
++ `C++ project`: `BigInteger`, 优化
+    + 将乘法从`O(N^2)`优化到`O(N^1.5)`，运用高斯用3次乘法代替4次乘法的办法
+    + 优化`toString`，每次处理`(sizeof(T) * 8) / log(base)`位
++ `C++ project`: `ADTAndAlgo`, 用100多行实现了个最简的`BigInteger`，支持`add/mul/tostring`
+
+#### 16. 杂项
++ `std::string`的`c_str()`无法提供可靠的`writeable buffer`（比如，`COW`的实现就不可写），但是`&str[0]`可以
++ `C++ project`: `bigInteger2`, 完全重写。可惜性能没有提高。`fromString`采用了类似于`toString`的分块读取法，快了几倍
