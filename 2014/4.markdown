@@ -324,3 +324,23 @@
 #### 16. 杂项
 + `std::string`的`c_str()`无法提供可靠的`writeable buffer`（比如，`COW`的实现就不可写），但是`&str[0]`可以
 + `C++ project`: `bigInteger2`, 完全重写。可惜性能没有提高。`fromString`采用了类似于`toString`的分块读取法，快了几倍
+
+#### 17. 杂项
++ `Python project`: 重构`UniqLineCounter`, 参数列表可以是文件或文件夹; 如果参数列表为空，处理标准输入的行
++ `C++ project`: `base64`, 高品质的实现
+
+#### 18. 杂项
++ `C++ project`: `Hashlib`, 今天实现了`Md5/Sha1/Sha256`, 性能和`md5sum/sha1sum/sha255sum`相当
++ 编译期交换变量的方法
+    + 对于处理海量数据的算法，如果算法中需要交换几个变量的值(比如`Md5`等算法中的128位向量循环右移32位的操作)，可以仅仅是在算法的稍后部分交换源码中变量的名字，从而省掉拷贝的开销
+    + 具体方法:
+        + 原始算法:
+            1. `step1 = f1(a, b, c, d); swap(d, a, b, c);`
+            2. `step2 = f2(a, b, c, d); swap(c, d, a, b);`
+            3. `step3 = f3(a, b, c, d); swap(b, c, d, a);`
+        + 将`f1/f2`等操作改写为以变量引用做参数的`inline`函数或者宏，然后:
+            1. `step1 = F1(a, b, c, d);`
+            2. `step2 = F2(d, a, b, c);`
+            3. `step3 = F2(c, d, a, b);`
+    + 真实例子:
+        + `Md5/Sha1/Sha2`中的多个变量循环右移(128/160位变量)，仅仅是交换变量名; 这几个`hash`算法中，循环展开，交换变量名的同时，还进行了表格内容的立即数嵌入等优化
