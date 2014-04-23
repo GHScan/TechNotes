@@ -362,3 +362,126 @@
         + 实现`bitstream`，平时用`uint8_t`存储，偶尔需要`fetch<int32_t>`，这里就需要确保按`litten endian`来操作，否则语义错了
 + `C++ project`: `lzw`, `lz77`压缩，都很高效，压缩可以几十M/s，解压可以上百M每秒
     + 在`hashtable`的使用上一个确认影响到性能的地方: `lzw`在压缩的时候使用的是整串的`hash`，因此`bucket size`选择`2^n-1`没问题；但`lz77`使用的是头4个字节的`hash`，结果很多`slot`的链太长，使用素数作为`bucket size`后，有效的让分布更均匀，提高了效率！
+
+#### 23. CSAPP 第2版
++ 并发和并行
+    + 线程级并发(TLP): 从分时系统(time sharing)开始就出现并发，但是这种并发是由OS模拟出来的(进程、线程)；直到多核和超线程(hyperthreading)，才实现真正的并行
+    + 指令级并发(ILP): 现代处理器可以同时执行多条指令的能力，即流水线。如果处理器可以通过多条流水线达到一个周期处理多条指令，就是超标量(superscalar)
+        + 阻碍ILP的两个相关性: 数据相关性导致的data hazard和控制相关性导致的control hazard，前者通过forwarding和stalling来应对，后者通过branch predication应对
+    + SIMD: 一条指令执行多个并行操作。如SSE和AVX
+    + 超线程(hyperthreading)，允许一个CPU执行多个控制流，它涉及CPU的某些硬件单元有多个备份，比如program counter和register file，而其他硬件单元只有一份，比如执行浮点算数运算的execution unit。OS级的上下文切换可能需要20000个cycles，而hyperthreading只需要1个cycle，这样，当核心上的一个线程在等待数据从cache中load的时候，另一个线程可以执行。core i7有4核8线程
+    + 模拟并发是需要的(thread和process)，即每核心超过一个任务是需要的，因为CPU比IO设备快，如果每个核心只有一个计算任务，那么一旦遇到IO，CPU将等待，这浪费了处理器的计算能力
++ 为对抗缓冲区溢出攻击，编译器和OS做了一下措施(对用户程序透明)
+    + 栈随机化：每次程序启动后，第1个栈帧的基址都在变。最新的版本的linux中, `int main() {int i = 0; printf("%p\n", &i); }`的输出每次都会变了
+        + 更大的一类技术叫，地址空间布局随机化(address-space laytout randomization)，即所有程序段、代码段、数据段地址都会变，因此局部变量、全局变量的地址都会不同了，当然生成的代码也应该是PIC的
+        + 执着的攻击者采用`nop sled`来攻击，即将很大范围的地址空间填成nop，一旦跳转到其中，即滑落到最后的攻击代码
+    + 栈破坏侦测(stack protector)：最新的GCC会在栈上buffer与栈帧状态数据之间插入guard value，执行写buffer操作后，如果检测guard value有变，即被攻击。该值是程序每次运行时随机产生的，无法预测。对应的GCC选项是`-fstack-protector`
+    + 限制可执行代码区域：新的处理器在虚拟存储器系统中的页表上提供了执行标记，一般来说，栈是不可执行的。JIT需要内存具有执行标记
++ x86-64
+    + GCC在生成32位程序的默认条件下，只会用i386指令集，而不会使用95年以后的更新指令，这是出于兼容性的需要(优化选项开得够高的话...)
+    + x86-64诞生的动机、过程
+        + 动机
+            + 1985年i386出现以后，RAM增大了512倍，disk增大了10000倍，CPU快了1250倍，在硬件进步如此大的情况下，编译器生成的代码还是85年的i386兼容的，这不足以彻底发挥硬件性能
+            + 32位寻址空间的4G内存已经不够用了
+        + 过程
+            + 2001年intel推出IA32的升级版IA64，它是从头开始设计的一套指令集，只能以兼容模式运行IA32的代码，很慢。市场反响不好
+            + 2003年，amd抓住intel的在IA64上的失败，推出x86-64，意思是兼容x86的64位扩展。完全向后兼容，更强更快。后来将x86-64更名为amd64
+            + 2004年，intel意识到不可能靠IA64替代IA32了，于是推出x86-64的变种，称为IA32-EM64T(enhanced memory 64-bit technology)。后更名intel64
+            + linux和GCC统一将amd64和intel64称为`x86-64`，而将IA32叫做`i386`
+    + x86-64的特点
+        + 指针和长整数是64位
+            + eax,ebx等通用寄存器扩展到64位，叫rax,rbx
+            + C语言中的指针、long都是64位了
+        + 通用目的寄存器从8个增加到16个
+            + 8个新的寄存器叫r8~r15。它们的低32位、低16位、低8位分别交r8d, r8w, r8b
+            + 更多寄存器减少了register spilling的可能，从而提高性能
+        + 尽量将程序状态保存在寄存器中而不是栈上。函数调用从栈密集变为寄存器密集
+            + 函数的前6个参数使用寄存器传递
+            + 每个函数可以访问超过rsp的128字节空间，这样，临时变量有限的函数完全不需要移动栈指针了
+            + rbp不再用作基址，没有特殊意义，局部变量访问改为基于rsp
+        + 使用更优的指令
+            + cmov的使用
+            + 提供PIC的寻址方式: imm(%rip, idx, scale)
+            + GCC在IA32下，默认对齐是`小于4字节，按2对齐；大于等于4字节，按4对齐`，在x86-64中，和MSVC一样，按sizeof(scalarType)对齐了
+        + 浮点操作用SSE指令集替代x87指令
+            + x87浮点指令集的一个明显缺点是，8个寄存器形成一个小栈，它们作为一个整体是caller save的，函数调用之前必须刷到栈上(尽管也可能是callee save，但总之必须作为整体将8个寄存器压栈，很浪费)
+            + GCC下提供80位精度的long double，不再是硬件支持的了，因此，在x86-64中使用long double没有性能优势
++ 第5章，优化程序性能
+    + 编写高效程序的几类活动
+        1. 选择一组合适的算法和数据结构
+        2. 编写编译器能够有效优化的代码。需要理解编译器的能力和局限性，C语言的指针算数运算和强制类型转换都妨碍优化
+        3. 当数据特别大时，划分任务，利用TLP优化
+    + inline过后，procedural side effect的optimization blocking效应没了，从结果上过来说的达到了过程间分析的效果
+    + 最小2次方拟合(least squares fit)
+        + 对于O(n^k)复杂度的算法，尝试找到k阶系数的f，使得sum((yi - f(xi))^2)最小
+    + loop-invariant code motion
+        + 以函数调用作为循环截止，导致编译器无法进行code motion的一个理由是，loop body的写操作可能导致循环上界改变，因此如果上界函数过于复杂，编译器无法充分分析，则无法安全的做code motion
+    + 由于branch prediction的存在，循环内的range check开销可能不大
+    + 注意指针引入的memory aliasing导致优化困难。C中的关键字restrict可能有用
+    + 超标量是out-of-order的，它有两个主要部分，指令控制单元(instruction control unit)和执行单元(execution unit)
+        + ICU通过retirement unit和register renaming来处理分支预测，对于流水线前端的指令，他们的输出结果被renaming到其他临时寄存器，供后续指令引用，如果分支结果预测正确，那么这些临时结果生效，即retire，如果预测错误，则被扔掉(flush)。register renaming其实很像数据的版本号
+        + 指令的两个指标，latency和throughput，其中throughput的倒数是issue time。对于issue time为1的指令，称为完全流水线化(fully pipelined)，比如整数、单精度浮点的+-*，ALU中往往有多组它们的EU，而除法需要大量的硬件单元，直到上一条除法指令几乎完成的时候，下一条才能开始，它的issue time很大(10~20个cycles)
+        + latency和issue time分别定义了操作的下界和上界，对于data dependency重的算法，后续的指令可能需要stalling直到前面的操作完成，因此latency是主要指标，而如果数据相关性不强，操作几乎可以并行执行，那么由于ILP的关系，issue time会成为主要指标，即load/add/mul等只需要1个cycles，只有div由于issue time很大，需要10+个cycles
+        + 除法的latency和throughput有一定浮动，具体情况因输入数据而异
+    + reassociation transform: 重结合变换，利用运算的结合性，降低data dependency，提高ILP，效果类似loop spliting
+        + 降低data dependency过后，能让操作时间由latency向issue time靠拢
+    + loop spliting和reassociation transform都要求运算满足结合性，所以对于整数+- * ，编译器能自动进行，但是对于浮点数，由于精度的缘故不支持结合律，所以编译器不会自动进行这些优化。(可能开启-ffast-math或者-Ofast能行)
+    + 现代CPU上一个load至少要1个cycle，因此，如果loop body中有两个访存操作，那么CPE(cycles per element)不可能低于2
+    + 同样save操作的CPE也不可能低于1
+    + write/read dependency: 下一条指令需要读取上一条指令写入存储器的值。这要求读操作检测save unit中是否有被cache住还没写入L1的数据，如果有，必须等到它们刷入L1才能去读，否则可以直接读L1，因此write/read dependency会导致更慢
+    + 一些限制性能的因素
+        + register spilling。x86-64相比IA32好了很多
+        + miss penalty
+            + 对于core i7来说，是44个cycles，即，对于无规律的分支，平均penalty是22个cycles
+            + 不要关注可预测的分支
+                + 比如迭代的结束条件，它总是成功直到最后退出的时刻才预测失败
+                + 真正不可预测的是数据驱动的循环中的条件判断，它的命中率往往只有50%
+            + 编写条件传输形式的代码代替条件判断
+                + 比如用`cond ? a : b`，在GCC上它能生成cmov，从而避免了分支预测。并不是所有的程序都能改写成这种形式，因为它要求先计算出两个分支的值，这会增加计算量，而且语义也可能不允许
++ 现代disk一般有多个zone，越往外，zone中每个track的sector越多；sector由disk driver管理，它将sector抽象成block暴露给上层，物理sector会有部分作为备份，因此block数少于sector总数
++ 关于SSD(solid state disk)
+    + 它是一种flash rom，长期以来被用于mp3播放器等，由于一直在降价提高容量，是disk的一种潜在替代者
+    + 它的顺序读写极快，随机读也在同一量级(随机读的比disk快了数百上千倍)，随机写要慢一个量级
+    + SSD的写较慢是因为：数据的读写单位是page，而每个几十个page组成block，写page的时候，要求先擦除block，才能写，如果block上已经有其他page了，必须拷贝到一个已擦除的新block后才能写，所以慢很多
+    + 写SSD会消耗寿命，闪存翻译层的平均磨损(wear leveling)逻辑会尝试通过将擦除平均分布在所有块上来最大化寿命
+    + 一个典型的SSD读写速率：
+        + 顺序读:   250M/s              顺序写: 170M/s
+        + 随机读:   140M/s              随机写: 14M/s
+        + latency:  随机读: 30us        随机写: 300us
++ 由于i-cache几乎是只读的，因此它的参数可能和d-cache不同，它可能更简单
++ core i7的存储器系统
+    + 每核
+        + L1 d-cache 32K, L1 i-cache 32K
+        + L2 unified cache, 256K
+        + L1 d-TLB 64, L1 i-TLB 128
+        + L2 unified TLB 512
+    + 4核共享, L3 unified cache, 8M
+    + quick path将4核连起来，让1个核和其他核以及外部IO bridge直接通信
+    + cache的输入是物理地址, TLB的输入是VPN
+    + 48位VAS和52位PAS
+        + 可配置page size为4K或者4M(以下讨论限4K)
+        + PTE是64位即8字节，因此4K的页只能放512个PTE
+        + 4级页表, 48位被分为9,9,9,9,12, 即每级页表512个元素，每个页4K
+        + 对于前3级PTE，64位里记录了读写标记、执行标记、内核模式标记、只写/写回策略、access标记、页大小(4K/4M)、40位的下级页表的PPN、是否在物理存储器中(linux上总为1，即页表常驻内存)
+        + 对于最后1级PTE，还记录了dirty标记
+        + 因为PTE中的PPN是40位，因此PAS是52位，如果这里的PPN是4*9的话，VAS才等于PAS
++ 访问VA -> PTE-> 是否在物理存储器中? 如果是，则PA; 否则 -> linux, 是否是一个合法的段? 否的话，非法访问; 是的话，执行page fault处理程序
+
+#### 23. 杂项
++ 比较整数x,y: x < y，而x - y < 0和-y < -x都是错的，它们都可能溢出，前者是减法溢出，后者是因为`-INT_MIN==INT_MIN`
++ 用异或和减号编写的trick版的swap缺点：
+    + 不具备generic programming的能力
+    + 当x,y引用同一个对象的时候，会被清0
++ C中无符号数>>规定是逻辑右移；有符号数的>>没有明确规定，编译器通常实现为算数右移
++ C标准没有规定`i >> w`中的w如果超过`sizeof(i) * 8`的行为，一般的处理器上它的结果将是`i >> (w % (1 << sizeof(i) * 8))`
++ C的union绕过了类型系统，要小心
++ Java只有有符号数，而无符号数一般被用作纯粹的位序列，因此，丢掉无符号数过后，相应的必须提供逻辑右移的能力>>>
++ 一些新的处理器可以配置成little-endian或者big-endian
++ 群: 封闭性、结合律、单位元、逆元
++ 阿贝尔群: 即交换群，在群的基础上满足交换律。int上的+法即是阿贝尔群
++ gdb的几个命令:
+    + break funcname: 在函数开始下断点
+    + disassemble funcname: 反汇编该函数
+    + info register: 查看寄存器
+    + gdb -x file: 可以执行file中的多个命令，从而可以达到保存断点的效果
++ 早期的RAM的每一位都是由一个铁氧体磁芯实现的，所以物理内存被称为core memory
