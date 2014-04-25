@@ -485,3 +485,76 @@
     + info register: 查看寄存器
     + gdb -x file: 可以执行file中的多个命令，从而可以达到保存断点的效果
 + 早期的RAM的每一位都是由一个铁氧体磁芯实现的，所以物理内存被称为core memory
+
+#### 25. SICP, 第1章, 构造过程抽象
++ 大纲
+    + 程序设计的基本元素
+        + 表达式: 数字和运算符，以及组合式
+            + `+,-,*,/,remainder,not`都是过程; 常用过程还有display/newline/random/current-milliseconds等
+            + `1.0`是浮点数，在此基础上进行的计算都是浮点数
+            + `1`是整数，在此基础上进行的计算都是有理数。racket支持任意精度的有理数，解释器可能通过gcd化简有理数成真分数
+        + 命名和环境: 通过define将一个名字和值绑定到当前环境中
+            + 本质上只有(define name exp)一种语法，(define (funcname args) body)是(define funcname (lambda (args) body))的语法糖
+        + 求值过程
+            + 当(...)以非关键字开头时，其中各个子表达式会逐个求值，最终的值列表中，第1个元素是一个过程(lambda或者builtin的+-*/等)，后面的值会作为实参来调用过程
+                + 存在惰性求值的解释器，后面的实参不会在调用过程前就展开，但racket是立即求值的
+            + 当(...)以关键字开头时，执行特殊的求值方式，即scheme本身的语法生效
+                + cond: 逐个求值各个case，遇到真时，求值exp并返回。求值严格按照这个顺序，短路逻辑。case的语法是: (pred exp1 exp2 exp3 ...)，返回最后一个exp，其实这里得到了语句的效果
+                + else: 用为#t的关键字。(在racket中，true和false是两个预先define的变量，分别为#t和#f)
+                + if: cond的两分支特例，解释器会检查两个分支都存在。then和else的exp只能是单个exp
+                + and: 返回#f或者最后1个exp本身，短路逻辑
+                + or: 返回#f或者第1个非#f的exp本身，短路逻辑
+                + define: 将一个名字-值对绑定到环境中
+                + lambda: 定义一个用户过程。语法`(lambda (args) [(statement1) (statement2)...] body)`，其中的statement可以是(define ...)(newline)(print ...)(display...)等，太自由了
+                + let: 求值为一个表达式，用于在任何允许是表达式的位置通过call一个lambda引入局部变量。语法`(let ((var1 exp1)(var2 exp2)) body)`，是`((lambda (var1 var2) body) exp1 exp2)`的语法糖
+    + 过程与计算
+        + 线性递归(linear recursive): 往往很容易通过将状态作为参数传给f(x(n+1))，从而形成尾递归，使得时间复杂度保持O(n)不变，但是栈空间复杂度从O(n)降到O(1)；IEEE标准要求scheme的实现支持尾递归，所以可以期待解释器将其优化成迭代
+        + 树形递归
+            + 作用在数列上时，开销可能是指数的；思路自然，但要写成尾递归优化可能很难或不可能。fibonacci数列是一个树递归成功迭代化的例子
+            + 当递归作用于层次结构上时，可能是自然的。比如树结构的遍历
+        + 几个logn的算法
+            + 幂可以用logn的乘法得到
+            + 乘法同样可以用logn的加法得到(最快的是FFT)
+            + fibonacci可以用logn的2x2矩阵乘法得到
+            + gcd的经典求法也是logn的
+            + 大素数测试所用到的pow也是logn次mul&mod得到
+    + 高阶函数用于抽象
+        + 过程用做参数
+            + 求和，比如定积分
+            + 折半查找求根，不动点，牛顿迭代
+            + map/filter/reduce
+        + 过程作为返回值
+            + double/compose/repeat等高阶函数
++ 启发价值的工具
+    + 有过程f(x)，能够返回其导数，即`(f(x + dx) - f(x)) / dx`
+    + 有过程f(x), 能够返回其定积分，即`(f(a + dx/2) + f(a + dx/2 + 0*dx) + f(a + dx/2 + i*dx)...) * dx`
+    + 有过程f(x), 能够进行不动点迭代(fixed-point)，找到x使得x=f(x)
+        + 对于特定的方程f(x)=0，可以精心构造g(x)来通过不动点求f(x)的根
+        + 基本迭代方法: `x(n)=f(x(n-1))`，可能震荡甚至无法收敛
+        + 平均阻尼(damping): `x(n)=(x(n-1) + f(x(n-1)))/2`，收敛性更好
+    + 有过程f(x)，能够通过折半查找法求f(x)=0的根，要求同时提供a,b使得f(a)<0且f(b)>0
+    + 有过程f(x)，可以进行newton-transform得到`x - f(x)/f'(x)`，对它进行标准不动点迭代(非平均阻尼)，即可求得f(x)=0的根
+        + 通过`x(n)=(x(n-1) + y/x(n-1))/2`来求sqrt的做法，即是牛顿法的一个特例
+    + 上面方法的应用:
+        + 求平方根，3次方根甚至n次方根，都等价于求f(x)=0，于是可以用遮半查找或者牛顿法来求根
+        + 黄金分割是`f(x)=1+1/x`的不动点
+        + 求pi
+            + 因为sin(pi)=0，所以求sin(x)=0的根能得到pi
+            + 圆的面积等于pi*r^2，所以`sqrt(1 - x*x)`在[-1,1]的定积分是pi/2，所以求定积分能得到pi
+            + 莱布尼茨发现`pi/4=1-1/3+1/5-1/7+1/9...`，所以求和可得pi
+        + 求e: 见p47
+        + 求tan(x): 见p48
+    + fibonacci数列的第n项的log求法: 可以看做是对向量(1, 0)进行n次((1,1),(1,0))的矩阵变换，即v * pow(m, n)，其中pow是logn的，所以...
+    + 对200位数进行因式分解在目前的计算机上是不可能的，但是进行素数测试确实可能的，由此催生了密码学、电子金融的应用。RSA也是基于大素数测试的可能性的
+        + 基于费尔马小定理的测试: 对素数n，有小于n的数a，(a**n)%n==a
+            + 存在骗过费尔马测试的数叫Carmichael数，很少，包括561,1105等，它们不是素数却能通fermat测试
+        + Miller-Rabin检测，一种费尔马测试的变形，不会被欺骗: 如果n是素数，a小于n，(a**(n-1))%n==1
+    + 几个神奇的高阶函数
+        + 过程double，可以将f(x)应用两次，即f(f(x))。威力强大，比如`((double (double double)) square)`等价于将square应用16次!(注意不是2^3次, 8次的应该是`(double (double (double square)))`)
+        + 过程compose，效果是f(g(x))
+        + 过程repeat，效果是将f(x)重复n次，即f(f(f(...f(x)...)))；它使用compose在logn的时间内构造
+            + 一个repeat的应用: 有过程smooth等于`(f(x-dx) + f(x) + f(x+dx)) / 3`，要将smooth应用5次，则smooth-5=(repeat smooth 5)
++ 编码风格
+    + 谓词过程名以?结尾: prime?
+    + 多参数过程每参数一行，参数列对齐
+    + 需要迭代的过程，尽量写成尾递归，方法名以`-iter`结尾
