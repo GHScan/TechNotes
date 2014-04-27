@@ -567,3 +567,7 @@
     + 谓词过程名以?结尾: prime?
     + 多参数过程每参数一行，参数列对齐
     + 需要迭代的过程，尽量写成尾递归，方法名以`-iter`结尾
+
+#### 27. 杂项
++ C++ project: Y-combinator
++ Lisp project: Y-combinator
