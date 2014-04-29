@@ -571,3 +571,79 @@
 #### 27. 杂项
 + C++ project: Y-combinator
 + Lisp project: Y-combinator
+
+#### 29. SICP, 第2章, 构造数据抽象
++ 大纲
+    + 引
+        + 本章的重点是将数据对象组合起来，形成复合数据。和复合过程一样，复合数据是为了提高我们在设计程序时所位于的概念层次，提高设计的模块性，增强语言表达能力。
+        + 和复合过程一样，这里考虑的主要问题，是将抽象作为克服复杂性的一种技术，数据抽象将使我们能在程序的不同部分之间建立适当的抽象屏障(abstraction barriers)
+        + 复合数据的关键思想是闭包，即，组合对象的粘合剂不但能用于组合基本的数据对象，也能用于复合数据对象
+        + 过程的参数和局部变量，都是bound variable；而引用的外层过程参数和局部变量，以及全局变量，都是free variable，含有对它们的引用的高级函数被称为闭包。
+    + 数据抽象导引
+        + scheme的pair很简陋，使用很晦涩，但构造过程和字段访问过程的抽象有效的屏蔽了这种不便，同时它们作为抽象屏障也隐藏了数据表现的变化，提供了扩展能力
+        + 在scheme的数据抽象中，cons/car/cdr位于最底层，出于性能考虑，它们被解释器实现为链表，但其实如果仅以实现语义为目的的话，能够捕获free variable的closure，已经可以作为复合数据的载体了，即，可以用包含free variables的closure作为复合数据本身，传入特定参数来返回不同的free variable，从而提供数据字段访问的能力
+            + cons/car/cdr的实现1: cons返回闭包，car传入0选择第1个字段，cdr传入1返回第2个字段。这是将携带free variable的closure看做对象的message-passing style应用
+            + cons/car/cdr的实现2: cons返回闭包，它接收一个过程作为参数，然后以所有的free variable调用这个过程并返回结果；car传入过程select_first_arg; cdr传入过程select_second_arg。这是将closure看做对象的message-passing style
+            + cons/car/cdr的实现3: cons返回一个整数，它由两个素数的幂构成，比如`2**n * 3**m`; car从数中提取2的幂; cdr提取3的幂；当然，这种表示只能组合基本数据，不能再组合复合数据，不具备真正的闭包能力(这个闭包是"对操作封闭"的概念)
+            + cons/car/cdr的实现4: 解释器实现，struct pair { void *car; void *cdr; };
+        + 本节实现复数时，先提供数据抽象的接口，再基于接口实现算法，最后才用具体的表现填充数据抽象接口的做法，非常典型！可见即使语言本身简陋，但借助于数据抽象，仍然可以自由表达算法！数据抽象作为屏障，有效的隔离具体表现方式(无论具体的数据是用结构、链表甚至是closure来呈现，完全不影响算法实现本身！)
+    + 层次性数据和闭包性质
+        + 术语`闭包`来自抽象代数，指如果将运算用于这一集合中的元素，产生出的仍然是该集合里的元素。另外闭包在程序设计中被用于指代包含自由变量的过程。
+        + cons具有闭包性，C和Pascal中的结构和数组不具备闭包性
+            + Alan perlis在SICP前言中评论，在Pascal中，过多的可声明数据结构导致了过程的专用化，从而造成对合作的阻碍和惩罚
+        + cons很容易表达链表，而基于链表可以实现大部分算法
+        + 因为cons具有闭包性，很容易通过嵌套链表实现多分支树
+        + 无论具体的数据结构是二叉树、kd树还是其他结构，都可以通过某种方式遍历，得到链表的方式，实现迭代器的抽象，进一步实现各种算法
+        + Richard waters通过自动分析Fortran的程序，并用map/filter/fold的观点去观察，他发现Fortran的科学计算程序包里，90%的代码都可以纳入这一范畴
+            + lisp成功的一个原因，就在于它用表作为一种标准接口，并提供高级函数来处理
+            + 程序设计语言APL的威力来自类似的选择，它的所有数据都是数组，而各种类型的数组都提供了一组普遍的、使用方便的运算符
+        + 通过嵌套map加上flatten的方式，提供list comprehension的能力
+        + 实例：通过beside/below/flip-vert/flip-horiz的方式组合painter，而painter又被定义为高阶过程，不同的painter绘制不同的图像(线条、位图)；通过这样很简单的方式，组合出递归绘制的漂亮版画！
+            + 这其实是FP风格的多态，本例中相当于该多态只限于一个函数paint，因此painter被实现为函数子；如果该多态需要提供多组操作的话，如size/pos，那么可以用message-passing style，即传入操作选择子的symbol，这样就和常见的OO多态相同了；当然explicit dispatch和data-directed style也是可行方案
+            + 程序设计的一个关键概念，分层设计
+                + 一个复杂系统应该通过一系列层次构造出来，为了描述这些层次，可能需要使用一系列语言
+                + 设法组合一个层次中部件的各种基本元素，而这样构造的部件又作为另一个层次的基本元素
+                + 每个层次所用的语言都提供了一些基本元素、组合手段和对该层次中的适当细节做抽象的手段
+                    + 计算机工程里，电阻和晶体管被组合出来，产生与门、或门等部件
+                    + 门电路又被作为数字电路设计语言中的基本元素
+                    + 以上部件被组合起来，构成处理器、总线和存储器，进而构成计算机。这一层的语言是计算机体系结构
+                    + 计算机可以进一步组成分布式系统，采用的是适合描述网络互连的语言
+    + 符号数据
+        + 关于quote
+            + lisp中最常见的元素是number、symbol、list，这三个元素递归构成的复合结构，其打印输出等于其源码文本本身，这是刻意设计的！
+            + quote(')能被作用于符号和括号
+                + (被用作数字，等于数字本身)
+                + 被用作符号，返回symbol，它是一个interned的immutable string；即atom，能通过eq?高效的比较
+                + 被用作括号，返回列表，其元素被递归的quote
+            + quote的结果是atom或者atom的列表
+                + 从用户程序的角度看，它返回的是数据树(dom)或者parsed ast(如果被quote的是lisp源码的话)
+                + 从解释器的角度看，解释器parse整个源码后，得到大的ast，进一步将各个过程、表达式置入环境中解释执行，唯有quote节点的ast，解释器不访问，直接将这颗ast子树交给用户程序
+            + 由于quote返回的ast/dom是解释器parse得到的，解释器同样用该结构解释执行，而s-expression的结构又及其简单，因此，quote源码后由lisp自己来模拟解释器，也是十分容易的
+                + lisp很容易拿到ast，该ast结构简单，易于扩展和解释，因此lisp具备强大的元编程能力，是作为解释器/虚拟机的好选手
+        + 集合的union和intersection，都可以通过在有序数组的基础上完成，因此，任何表示的集合，其union和intersection的复杂度都不应该超过O(n)
+            + 直接的想，两个二叉树表示的集合，求交，是O(n*logn)的，但其实只要先中序迭代(O(n)的)，得到两个有序迭代器(数组)，就可以进一步O(n)的union或intersection了
+            + 给一个有序数组，很容易构建一个平衡二叉树，其实如果给的是链表，一样也能构建平衡二叉树
+            + 两个二叉树表示的集合求交:
+                1. 中序遍历两个tree得到list1, list2
+                2. 对有序list1，list2求交得到list3
+                3. 根据有序list3构建平衡二叉树
+        + huffman树的symbol不一定是8bit的字符，可以是任何单词
+            + 实际上deflate中的huffman compression过程，就是以literal和lz77的输出codeword作为输入symbol的
+    + 抽象数据的多重表示
+    + 带有通用型操作的系统
++ 启发价值
+    + cons, car, cdr的由来
+        + cons: construction
+        + car: contents of address part of register
+        + cdr: contents of decrement part of register
+    + 向量的dot-product，矩阵的matrix-mul-vector、matrix-mul-matrix、transpose，都可以用map/fold/zip等高阶过程来实现(通常只需要1、2行代码)
+    + 实现八皇后
+    + 实现huffman编码
+    + quote只被用于下一个元素，它只能是一个数字/符号或者括号，因此一个单引号足矣
+    + eq?/eqv?equal?的比较
+        + eq?，比较两个对象是否是同一个，实现依赖，具体为比较指针。symbol因为interned，所以适用；小整形因为是immediate的，所以适用；但float和big integer由于可能涉及内存分配，所以不适用
+        + eqv?，适用于包括float/big integer在内的数值
+        + equal?，各种类型的判等，包括string(mutable string)和list，其中list是递归比较
+    + 符号求导
+        + 仅仅通过4个规则即可包含所有加法乘法和幂: c->0, x->1, f1(x)+f2(x)->df1(x)+df2(x), f1(x)*f2(x)->...
+
