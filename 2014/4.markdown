@@ -598,6 +598,7 @@
             + lisp成功的一个原因，就在于它用表作为一种标准接口，并提供高级函数来处理
             + 程序设计语言APL的威力来自类似的选择，它的所有数据都是数组，而各种类型的数组都提供了一组普遍的、使用方便的运算符
         + 通过嵌套map加上flatten的方式，提供list comprehension的能力
+        + 描述一种语言时，注意力应该集中在语言的基本原语、组合手段以及抽象手段
         + 实例：通过beside/below/flip-vert/flip-horiz的方式组合painter，而painter又被定义为高阶过程，不同的painter绘制不同的图像(线条、位图)；通过这样很简单的方式，组合出递归绘制的漂亮版画！
             + 这其实是FP风格的多态，本例中相当于该多态只限于一个函数paint，因此painter被实现为函数子；如果该多态需要提供多组操作的话，如size/pos，那么可以用message-passing style，即传入操作选择子的symbol，这样就和常见的OO多态相同了；当然explicit dispatch和data-directed style也是可行方案
             + 程序设计的一个关键概念，分层设计
@@ -610,6 +611,7 @@
                     + 计算机可以进一步组成分布式系统，采用的是适合描述网络互连的语言
     + 符号数据
         + 关于quote
+            + 自然语言中，引号用于强调字面本身，而不进行语义解释，lisp中的quote也一样
             + lisp中最常见的元素是number、symbol、list，这三个元素递归构成的复合结构，其打印输出等于其源码文本本身，这是刻意设计的！
             + quote(')能被作用于符号和括号
                 + (被用作数字，等于数字本身)
@@ -630,13 +632,36 @@
         + huffman树的symbol不一定是8bit的字符，可以是任何单词
             + 实际上deflate中的huffman compression过程，就是以literal和lz77的输出codeword作为输入symbol的
     + 抽象数据的多重表示
+        + 实例，复数的两种表示，分别是直角坐标系和极坐标系，前者适合做加减，后者适合乘除。同时支持两种表示，避免了不必要的转换开销，提高了性能(比如连乘或连加)
+        + 多态的几种表示
+            + explicit dispatch。每个操作根据类型tag显示分派，对类型封闭，对操作开放(增加新操作无需修改现有代码)
+                + visitor pattern具备一样的特点，即对类型封闭对操作开放(需要新操作只需要派生一个visitor即可)
+            + data-directed style，每个对象attach上类型tag，多态调用点上，根据"操作+类型1+类型2..."的组合查表得到实际的过程，然后再传入去掉类型tag的对象实体进行调用
+                + 支持多分派
+                + 对类型开放，对操作封闭
+                + 闭包性：如果需要支持层次的多态，那么一个对象可能被前缀多个类型tag
+            + message-passing style，用高阶过程表示对象，通过将方法symbol和参数传入这个过程，在过程体中进行分派和执行
+                + 单分派
+                + 对类型开放，对操作封闭
+                + 等价于OO中的interface/base class，这里的高阶过程，过程体本身标记了类型(这个过程体/类型，决定了消息分派方式)，过程中的free variables相当于对象字段
+                + 这里用free variable表示对象字段的方式，实际提供了一种聚合数据的方式，因此，它可以用来实现cons/car/cdr；也证明，支持closure的语言是turing complete的
+                + 闭包性：因为高阶过程是first class的，因此可透明的复合
+        + 要实现data-directed style中多分派过程的注册，需要支持mutable的associative array。scheme中提供了make-hash/hash-set!/hash-ref等一组函数
     + 带有通用型操作的系统
+        + 虽然data-direcited style支持多分派，但当找不到完全匹配类型的过程时，可能需要提升类型(raise)，而因为自动提升机制的存在，自动化简的drop可能也需要，这是一个很复杂的机制
+            + 像刚体碰撞这种多分派，一般要求强类型匹配，但当找不到完全匹配时，能够自动raise成sphere/bounding box等基类来完成碰撞，可能也是可接受的
+            + 整数、有理数、实数、复数、多项式这样的算数系统，可能就需要提供自动类型raise/drop的机制以完成类型适配
+            + raise除了可以在多分派中进行类型适配外，即使是单分派，自动raise也能让int/float这样的派生类支持复数/多项式的方法
 + 启发价值
     + cons, car, cdr的由来
         + cons: construction
         + car: contents of address part of register
         + cdr: contents of decrement part of register
+    + p62, 纯粹通过lambda来实现算数运算，即church计数
+    + append, map, length都可以通过fold来实现
     + 向量的dot-product，矩阵的matrix-mul-vector、matrix-mul-matrix、transpose，都可以用map/fold/zip等高阶过程来实现(通常只需要1、2行代码)
+    + 实现全排列(permutations)
+        + 对S的每个元素x，调用permutations(remove S x)后，将x附加到每个结果的前面；再将所有x对应的排列flatten起来
     + 实现八皇后
     + 实现huffman编码
     + quote只被用于下一个元素，它只能是一个数字/符号或者括号，因此一个单引号足矣
@@ -645,5 +670,5 @@
         + eqv?，适用于包括float/big integer在内的数值
         + equal?，各种类型的判等，包括string(mutable string)和list，其中list是递归比较
     + 符号求导
+        + 和用高阶过程表示的导数比较
         + 仅仅通过4个规则即可包含所有加法乘法和幂: c->0, x->1, f1(x)+f2(x)->df1(x)+df2(x), f1(x)*f2(x)->...
-
