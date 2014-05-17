@@ -177,3 +177,19 @@
     + curry因为每次调用时都需要concat实参和free variable，所以较慢；计算密集的大递归中尽量避免curry(比如qsort)
 
 #### 15. 杂项
++ C++ project: 双向链表，只保存一个带环的dummy节点
++ Lua project: memoize，用于加速dynamic programming对应问题
++ Lisp/Lua/Python project: currying，curried procedure可以接收k个实参，如果达到f的参数个数要求，则调用
++ C++ project: currying，每次绑定一个实参。variadic template起了大作用
++ C++ project: MPL相关，typelist。variadic template起了大作用
++ C++ project: bloom filter
+    + 由于不存储key/value本身，因此无法提供map的抽象，只能用来表示集合，并且只支持insert/count，不支持遍历
+    + 不存储key/value本身，每个元素只用k bit(这里的k是计算出的hash function个数，12已经是一个非常优化的数字了)，因此非常适合用来表示元素尺寸很大的集合，比如url、string
+    + 总结，只需要支持insert/count的集合，并且集合元素尺寸很大，元素总数很多、空间占用很高时，考虑bloom filter
+        + 典型引用: 网络爬虫算法中，表示visited urls的集合
++ Lisp project: sort
+    + 使用curry的quick-sort极慢
+    + 比FP中经典的quick-sort快一倍的算法，同时能处理大量重复元素的特殊输入
+    + 用mappend!连接两个串，果然比要求O(n)额外空间的append更快！(在racket中)
+    + merge-sort很快。这里的关键是，怎样对无法随机访问的linked list进行按整数n分割
+    + 我最快的sort只比c的qsort慢3倍，而qsort又比std::sort慢3倍以上...
