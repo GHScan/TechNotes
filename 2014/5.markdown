@@ -50,6 +50,7 @@
             + 连线是一个subject，当上面的信号变化后(0->1或1->0)，通过callback通知observer
             + 与或非门：监听输入连线，检测到变化后，注册一个时延的callback，在callback中计算并设置输出连线的信号
             + 连线和门->半加器->加法器->N位加法器
+            + 这是第2章的图形语言外，又一次基本+组合+抽象的成功应用
         + 约束的传播(constraint propagation)
             + 一般来说，给定一个公式和一组变量，要求其中某个变量，必须先给出y=f(a,b,c)的数学公式，然后将公式转换为编程语言代码，这种方法要求工程师分别对每个变量都写一个求值过程。constraint propagation能根据提供的公式和任意一组变量，自动算出缺少的变量
             + 基本算子包括constant, adder, multipier等，他们会监听输入和输出的每个值，当n-1个值都被设置时，会自动计算出第n个值，进而通知其他运算子；当某个值被撤销导致已设置的值少于n-1时，它会撤销之前推导出的值
@@ -68,7 +69,9 @@
             + 通过cas可以实现一个忙等待的mutex(除非再提供yield的能力)
                 + 可以通过mutex实现semaphore
                 + 可以通过cas实现semaphore
-                + cas其实是在访问共享资源，当多个CPU核心通过cas访问同一个数时，由于缓存一致性的要求，给硬件的实现带来了困难
+                + 在单核CPU上，cas只需要简单的实现为禁止线程调度(禁止clock interrupt)；而多核CPU中，cas必须是特殊指令
+                + cas其实是在访问共享资源，当多个CPU核心通过cas访问同一个数时，缓存一致性的要求给硬件的实现带来了困难
+            + 赋值->顺序->历史->时间->状态->并发时的共享->通信
             + 并发控制中，任何时间概念都必然与通信有内在的密切联系。时间和通信之间的联系也出现在相对论中，在处理时间和状态时所面临的计算模型领域的复杂性，事实上可能就是物理世界中的基本复杂性的反映
     + 流
         + 流作为延时的表
@@ -114,6 +117,8 @@
         + 流和延时求值
             + 通过define流具备lazy效果的能力，可以用来解决数学上就是交叉引用定义的问题。见p241~244
             + 关于lazy参数的讨论
+                + 在lisp中，lazy参数只需要将调用时的实参给(stream xxx)起来即可
+                + 过程的实参并不是在进入过程体时就立即求值，而是在执行过程的过程中按需求值，这样，可以实现特殊算法：调用过程时难以提供所有参数，随着过程的执行，附加参数被求出...(当然，没有lazy evaluation也能实现这种算法，只是lazy参数的方案给了一种自然的解法)
                 + 虽然lisp是动态类型，但参数实际上可以是立即求值或者延迟求值，这样，每个形参都有两种选择，于是有k个参数的过程，其实就有2^k种选择，爆炸了，几乎呈现出静态类型generic的组合爆炸问题；一种选择是，在解释器层面让所有实参都lazy，但这就导致该语言的赋值/IO功能被限制
         + 函数式程序的模块化和对象的模块化
             + 虽然FP/流可以避免赋值中的顺序问题，但对输入的按真实序"归并"这一需求，势必强制性的引入时间概念，即使是在FP中
@@ -128,5 +133,47 @@
     + 厄拉多塞素数筛选法，直到20世纪70年代，才被概率法的成果超过。另外它是公元前3世纪的希腊哲学家，由于第一个给出地球的圆周的精确估计而闻名于世
     + 练习3.59，幂级数可以用来算e/pi/sin/cos，通过他们的积分性质以及常数项，很容通过define引用自身的流来实现，经典！
     + p234, euler-transform用于加速交错级数，神技！
+    + 所谓"随机"，即要求下一个输出和之前的输出无关，而`random_update`的恰好和这一个理念相反的，所以一定是伪随机的
+    + 比较操作符，有数值序、字典序的分别，后者用于字符串顺序
+    + 双向链表的典型实现：初始化一个dummy节点，首尾相连构成环；begin，即`dummy->next`，end即dummy。然后实现通用的insertBefore和removeAfter即可，无需做头指针的特殊判断
+    + 单向链表能实现哪些ADT或算法？
+        + 经典的单链表reverse法
+        + stack：push: n->next=h, h=n；pop: h=h->next
+        + queue
+            + 法1: 用一个pair保存head,tail。push: tail->next=n; tail=n；pop: head=head->next
+            + 法2: 保存tail，并且连接首尾成环。push: tail=insertAfter(tail)；pop:removeAfter(tail)
+    + 在动态语言中(如lisp/lua/javascript/python)，memoize可以作为一种通用设施，透明的优化开销大、访问频繁的纯函数
+    + partial application: 将过程f和将它的部分实参捕获成free variables后的那个closure
+    + currying
+        + currying最初是为了在只支持单参数的lambda calculation中模拟多参数过程
+        + 原始定义: 对一个过程f进行curry，将返回一个新的过程(curried version of f)，它接收一个参数，返回f的绑定了第一个参数的partial application，这个partial application也可以是curried的。即，如果f有k个参数，curry返回cf后，可以cf(arg1)(arg2)..(argk)
+        + 动态语言中，curry返回的curried procedure可以接收任意多个实参，只要累计的实参个数没有达到f的最小参数个数，那么curried procedure返回的仍然是curried procedure
+            + 对于lisp/lua/javascript/python，可以这么用curry(sum4, 1)(2, 3)(4)
+        + 静态语言中，由于过程的参数个数必须固定，因此curried procedure一次只能接受一个实参，k个参数需要调用k次
+            + 对于c++/haskell，只能这么用curry(sum4)(1)(2)(3)(4)。由于在haskell中所有的过程都是curried，加上过程调用的syntax sugar，前面的调用和f(1, 2, 3, 4)等价
+    + lisp中member, memq, memv是搜索value list；而assoc, assv, assq是搜索key-value pair list。就ADT而言，前者是list，后者是associative array
+    + 对于在lisp中实现message-passing-style的OO，如果所有的调用点都直接传递message的symbol，那如果message签名不匹配，需要在运行时的dispatch时才能发现；如果每个message都wrap一个过程，那么，签名不匹配问题在调用点上就会发现。总结，将message-passing-style中的每个message包装上wrap过程后，更有利于静态分析
+    + lisp中的stream是一种lazy evaluation的使用，曾经在algo 60上，也用call by name实现过lazy evaluation
+    + haskell的表，lisp的stream，python的itertools，c#/c++的linq，都是一个东西：惰性求值的列表，即既提供list的抽象，又具有O(1)的空间效率
+    + stream很适合用来表示数学上无限的定义
+        + 如无穷级数，其值等于e/pi/sin/cos/tan等
+        + 无限不循环的小数，即无理数。见练习3.58
+    + 本章出现的几个非list的stream很难实现的算法
+        + 练习3.56，汇合所有的只由2、3、5作为因子的数。用stream解及其经典！
+        + 将输入join过后，按权序merge成输出
+        + 逼近求值的加速器accelerated-sequence，其第k项是经过k次transform的结果。该解法严重依赖于历史，因此，连linq、itertools等其他lazy evaluation list都很难实现，只有stream实现得如此自然！
+    + stream的lazy核心是stream-cons，因此，用递归过程构造流时，递归调用应该放在stream-cons中；如果一个子递归调用不在stream-cons中，那么它的递归深度应该有限
+    + 流算法常用方案: 
+        + 法1, 生成无限流，每次take n。适合命名流，多次访问可以利用自带的cache避免重复计算。空间开销为n，但时间上避免了冗余
+        + 法2, 每次生成长为n的有限流。适合临时流，避免了空间开销，但每次都需要重新计算
+    + 截止目前SICP带来的新东西
+        + 通过lambda实现message-passing-style的OO
+        + 通过stream-cons实现lazy evaluation的list，比linq还多了历史状态的效果
+    + 以流来组织程序，关键是给大部分的过程提供一个输入流作为参数。输入流可以是，用户事件流、随机数流、输入信号流等
+    + partial application可以呈现两种抽象：
+        1. 对象，输入可能改变对象的状态，从而相同的输入有不同的行为
+        2. 纯函数，输入一定，输出相同。注意，如果是纯函数的抽象，那么过程体中一定不应该修改free variable！我之前实现的lua/python版本的curry就犯了这种低级错误，明明是要提供pure function的抽象，却修改了free variable，导致多次调用行为不同
+            + memoize等特殊用法例外
+    + curry因为每次调用时都需要concat实参和free variable，所以较慢；计算密集的大递归中尽量避免curry(比如qsort)
 
 #### 15. 杂项
