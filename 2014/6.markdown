@@ -1,0 +1,128 @@
+#### 6. SICP，第4章，元语言抽象
++ 大纲
+    + 引
+        + 建立新语言是在工程设计中控制复杂度的一种威力强大的工作策略，因为新语言能使我们以一种完全不同的方式，利用不同的原语、组合以及抽象去描述和思考问题，这些要素都是为了处理专门问题而打造的——显然，通用语言不太可能内置这些解决方案
+        + 本书中已经多次演示了定制语言：图形绘制语言、数字逻辑模拟器、约束传播系统(constraint propagation)
+    + 元循环求值器(Meta circular evaluator)
+        + 引
+            + 用与被求值的语言同样的语言编写求值器，叫做元循环
+            + 求值器的基本元素
+                + 处理嵌套表达式。即组合
+                + 定义复合过程。即抽象
+                + 使用变量。即基本元素
+                + 特殊形式(special forms)。特殊的求值规则，即语法。在lisp中，被叫做宏
+        + 求值器的内核
+            + eval需要针对不同的form进行dispatch
+                + 对于boolean、string、number等self evaluation的值，返回本身
+                + 对于变量(symbol)，从环境中找出对应的值。这里包括基本过程
+                + quote，返回正文。
+                    + 当然，还有quasiquote、unquote、unquote-slicing
+                + set!，修改变量所在的环境
+                    + define。正确的define实现，应该是以'undefined作为初始值来let要define的变量，然后以set!替换原来的define调用
+                + if，先求职predicate，再求值then或者else
+                + lambda，保存求值lambda时的环境；调用复合过程本身的时候，以形参约束(bound)实参、扩展环境，再用新环境求值过程体
+                + begin，按顺序求值
+                + library forms(derived forms)。在实际操作中，它们可以通过macro+fundamental form实现。common lisp的宏会有些问题，而scheme的hygienic macros则比较健全
+                    + cond, and可以用nested if实现
+                    + or可以用let + if实现
+                    + let/let*可以用lambda实现
+                    + named let可以用define+lambda+call实现
+                    + letrec可以用lambda+define实现
+                    + begin可以用嵌套的lambda实现
+                    + do可以用named let+if实现
+            + 可以将复合过程(lambda)实现为结构或者host过程，有细微区别:
+                + host过程：对caller来说无法区分host过程和lambda，因此无法实现特殊求值方式；但是实现上会简单点点
+                + 结构：实现会稍微复杂一点。但在进行过程调用的时候，由于可以区分host过程和target过程，因此就可以利用caller的环境，从而实现call-by-name/call-by-need/call-by-reference等精确控制的argument passing mechanism，要实现cps interpreter等可能也会稍微饶一点
+            + 在求值变量的时候，沿着环境中的frame链逐个查找的方式叫做deep binding(深约束)；一种优化策略是，在编译期，将每个变量的symbol翻译成词法地址(lexical address)，然后运行时可以直接以frame index+variable index进行lexical addressing
+        + 将语法分析与执行分离
+            + 这是一种partial evaluation的应用，将原来运行时的pattern analysis转到了编译期，减少运行时的工作，我将之看做一种编译
+            + 这种partial evaluation的手法在各种场合都可以使用，比如pattern matching, 以及包括kmp在内的各种预处理算法
+                + 关键思路：算法会多次运行，而多个运行实例间，有一部分公共参数，或者叫做静态参数、pattern；通过将这部分静态参数提取出来，进行一次原算法+静态参数的预处理，生成包含静态参数信息的新算法，最后作用于各组动态参数
+                + 形式化的描述一下。有多次计算：A1(S + D1), A1(S + D2), ... A1(S + Dn)，通过将A1(S)编译成A2（这个过程即partial evaluation，而生成的A2是partial application；当然，相比之下，currying的输出是一种极简的parital application），最后将原来的计算替换成A2(D1), A2(D2), ...A2(Dn)，由于A1+S只计算了一次，从而提高了性能
+    + Scheme的变形——惰性求值(Lazy evaluation)
+        + 正则序和应用序(Normal order & Applicative order)
+            + normal order和applicative order是用来描述一门语言的属性，前者指实参的求值会延迟到实际需要的时候(IO或者和其他系统的接合处)，后者指实参的求值会发生在调用过程前
+            + 如果某个参数的求值发生在进入过程体之前，则成这个参数相对于这个过程是严格的(strict)；反之，如果还没求值就进入过程，则成为nonstrict
+            + normal order一般是语义层面的概念，而lazy evaluation往往是指一种实现层面的手法
+            + normal order是语言语义层面的概念，而nonstrict是某个参数相对于过程的属性
+                + 一般的scheme都是applicative order的，但stream-cons的cdr参数、甚至包括car参数是nonstrict的
+        +  一个采用惰性求值的解释器
+            + 比起stream-cons这样通过special form来实现lazy evaluation，让整门语言变成normal order的好处是，具有nonstrict参数的过程可以被当做first-class值用于过程参数和返回
+            + 在scheme社群中，以thunk称呼lazy得到的延迟对象，通过force来迫使thunk对象求值；如果thunk本身带有缓存，那么往往用于实现call-by-need，如果没有缓存，则被用于实现call-by-name
+    + Scheme的变形——非确定性计算(nondeterministic computing)
+        + amb和搜索
+            + amb是John McCarthy在1961年第一次提出的
+            + 本节的amb实现是基于历史的回溯(chronological backtracking)，或称为深度优先搜索
+            + 自动搜索的历史
+                + 1967年，Rebert Floyd第一次提出可能通过搜索和自动回溯，把非确定性算法很优雅的做紧程序设计语言里
+                + 1969年，Carl Hewitt发明了Planner程序设计语言，它显示支持自动按历史回溯`(automatic chronological backtracking)`，采用depth first search
+                + 1971年，Sussman、Winograd和Charniak实现了Planner的一个子集，叫做MicroPlanner，用于支持问题求解和机器人规划工作
+                + 类似的想法也出现在逻辑和定理证明领域，导致Prolog语言在爱丁堡和马赛诞生
+                + 1972年，由于自动搜索遇到极大障碍，McDermott和Sussman开发了一种名为Conniver的语言，包含程序员控制下的搜索策略安排机制，但这种方式被证实难以使用
+                + 1975年，Sussman和Stallman在研究电子线路的符号分析过程中创建了一种更容易控制的方法，他们开发出一种基于相互关联的事实之间的依赖关系的非历史的回溯模式，被称为依赖导向的回溯`(dependency-directed backtracking)`。虽然方法比较复杂，但性能可接受了，因为工作中很少做多余的搜索
+                + 1979、1980年，Doyle和McAllester推广并进一步澄清了Sussman和Stallman的方法，开发了一种新的构造搜索形式，被称为正确性保持`(truth maintenance)`。新型问题求解系统都用了某种形式的正确性保持技术
+                + 1987年，Zabin、McAllester和Chapman描述了Scheme的一种基于amb的非确定性扩充，采用的是依赖导向的回溯
+        + 非确定性程序的实例
+            + 解逻辑题
+            + 依赖于搜索的数值题
+            + 一个例子，自然语言语法分析
+        + 实现amb求值器
+            + 原理：
+                + cps解释器
+                + 保存continuation后，可以在任何时候通过调用continuation来返回过去的某个程序状态(通过监听set!，在backtracking的时候进行undo)；因此，管理一系列的continuation后，就相当于拥有了一部时间机器，这就是amb的本质
+                + 该amb解释器通过将每个amb form调用点上的continuation及一系列的备选值保存起来，链接到fail closure chain中，在计算失败的时候取出并执行顶上的fail closure就相当于取出最近的一个continuation和备选值进行回溯
+                + fail closure chain其实就是continuation + value的chain，它们就是continuation的管理者，也就是时间机器的核心
+            + 用call/cc辅以显示的continuation+value链，也能实现amb
+    + 逻辑程序设计
+        + 关键
+            + pattern matching，模式匹配。输入一个模式和数据，将模式中的变量绑定到对应的数据
+                + 在scheme中，linear pattern matcher，无论是运行时还是编译期的都很好写，注意运用partial evaluation去掉运行时的模式分析
+            + unification，合一。pattern matching的推广，匹配的两边都是模式，因此，一次unification结束，可能两边都还有变量没约束到具体的数据，但只要没发生匹配失败，那合一仍然可以结束
++ 启发
+    + 一个简单的求值器有可能去模拟远比求值器本身复杂的各种程序，尽管这种结果可能会稍微违反直觉
+    + 图灵提出的停机问题，是清晰给出的第一个不可计算问题：一个良好刻画的工作，却不能由一个计算过程完成
+        + 不可能写出过程halts?，用于判断一个程序是能停止:
+
+            (define (test f)
+                (if (halts? f)
+                    (test f)
+                    'halted)
+            )
+            (test test)
+    + 不借助define实现递归：Y combinator
+        + 在C++这种无GC环境中，它还是一种存储上的解决方案（打破了lambda递归时的存储限制）
+        
+
+#### 6. SICP，第5章，寄存器机器里的计算
++ 大纲
+    + 寄存器机器的设计
+        + 一种描述寄存器机器的语言
+        + 机器设计的抽象
+        + 子程序
+        + 采用栈实现递归
+        + 指令总结
+    + 一个寄存器机器的模拟器
+        + 机器模型
+        + 汇编程序
+        + 为指令生成执行过程
+        + 监视机器执行
+    + 存储分配和垃圾回收(Storage allocation & Garbage collection)
+        + 将存储看做向量
+        + 维持一种无穷存储的假象
+    + 显示控制的求值器
+        + 显示控制求值器的内核
+        + 序列的求值和尾递归
+        + 条件、赋值和定义
+        + 求值器的运行
+    + 编译
+        + 编译器的结构
+        + 表达式的编译
+        + 组合式的编译
+        + 指令序列的组合
+        + 编译代码的实例
+        + 词法地址
+        + 编译代码与求值器的互连
++ 启发
+
+#### 6. 杂项
++ 对continuation和cps的理解
