@@ -329,7 +329,30 @@
         + 在racket上，该方法实现的迭代器性能秒杀list、stream、call/cc等方案
         + 在lua中，性能不及coroutine
     + ADT专用算法，如二叉树的parent节点，线索二叉树
-+ C/C++ project
++ Lua project
+    + 实现简单的scheme解释器，最少语言元素：变量+lambda+过程调用。同时支持currying，因此多参过程的声明和调用都是syntax sugar
+        + 由于解释器很简单，为了打印fibonacci数列，就在脚本中运用了Y-combinator、church numberal的手法
+    + 用VCPS写二叉树的迭代器，比coroutine更慢；注意在lua中，VCPS可以用tuple代替pair
+    + 用coroutine实现yield、async/await
++ Python project
+    + 用yield实现coroutine、async/await
 + Scheme project
     + 用racket实现的amb解释器，居然比直接用racket的call/cc实现amb高效得多；另外自己实现的cps解释器中的call/cc也比racket的call/cc高效得多...
-
+    + 尝试yin-yang-puzzle，将原题改写、去掉call/cc，然后再运用substitution model进行推导(deduction)
+    + 用VCPS写多叉树迭代器，处理tree comparison问题，比用list、stream、call/cc写的迭代器都快！
+    + 用宏写单元测试框架
+    + 用call/cc实现yield、coroutine、async/await、exception、amb
+    + 编写运行时的linear pattern matcher；提供运行时解释版本以及预编译版本(partial evaluation)
+    + 编写编译期的linear pattern matcher宏
+    + 用racket的match写一个简短但完备的meta-circular evaluator
+    + 写一个cps解释器
+        + 解释器本身用match宏来dispatch
+        + 支持defmacro，基于运行时预编译的pattern matching；cond/and/or/let/let*/letrec/do等library form都是宏实现的
+        + lexical addressing
+        + call/cc。能够跑async/await、yin-yang-puzzle的示例
+    + 写一个vcps的scheme解释器，比cps版本慢了点
+    + 最简短的cps解释器，能够演示lambda calculus、yin-yang-puzzle的示例
+    + list comprehension的宏
+    + 比较啰嗦的parser combinator尝试
+    + lisp 99 problems中的50余题
+    + project euler的前50题
