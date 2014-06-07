@@ -176,4 +176,160 @@
             + 利用S1上的编译器，编译C解释器的C源码，得到一个S2上的C语言解释器，从而能在S2上解释执行C语言。这个解释器的运行速度和1.中的手工解释器不同，区别是手工汇编和编译器输出的优化水平差距
 
 #### 6. 杂项
-+ 对continuation和cps的理解
++ Scheme
+    + (arg1 . args)处理起来其实是高度统一的，无论是pattern matching，或者是用于其他什么目的
+    + 宏系统其实是向用户开放library form的自定义。又叫语法扩展，因此定义宏叫defmacro或者define-syntax
+    + 注意SICP中编译(partial evaluation)表达式序列时的组合方法
+        + 它实际上在编译期分析了序列的结构，避免了运行时的map，对1元素、2元素的短序列效果尤其明显
+        + SICP中使用的是非尾递归结合，但实测我用的尾递归结合在元素数>2时，在racket中更慢，不知为何。但能确定的是，我的尾递归结合在FP解释器中不会栈溢出
+    + lexical addressing的frame index，在meta-circular evaluator中优化效果极为明显(比variable index效果更显著)
+    + 选出无序数组的最小项
+        + sort+min法，在applicative order的语言中，是O(n*log(n))的，但在normal order的语言中，是O(n)的
+    + 如果cons的cdr是nonstrict的，那么，可以实现lazy list(即stream)；如果cons的car也nonstrict了，则可以实现lazy tree
+        + racket的stream-cons参数是完全nonstrict的，因此racket的stream可以实现lazy tree
+    + 单一状态的管理
+        + 变量(引入赋值，side effect): 保存状态的最新版本。赋值的先后有区别，存在时序问题
+        + 流：保存状态的完整历史。所有状态(所有流)版本一致，无时序问题，但随着状态的更新，空间复杂度是O(n)的。对应顺序模型？
+        + amb: 只保存当前值，但同时提供备选值的搜索。对应分叉模型？
+    + scheme中的宏相关：define-syntax, let-syntex, letrec-syntax, `let*-syntax`, syntax-rules, syntax-case, with-syntax
+        + syntax-rules, with-syntax都是用syntax-case实现的
+        + syntax-case也可用于一般的模式匹配
+        + 和common lisp的宏(defmacro)不同，scheme的宏基本是一门DSL，它是hygienic macro
+    + lisp是少有的解释/编译对用户不透明的语言，这主要表现在macro expansion time上
+        + 对于边解释边执行的解释器而言，macro expansion time就是解释期。显然，宏体中能访问宏定义之前的所有过程
+        + 对于先编译再求值的编译器而言，macro expansion time发生在编译期。显然，宏体中不能访问同一个编译单元(文件)定义在宏定义之前的用户过程，因为它们要到运行时才会产生
+        + 基于上面的解释，有限制的在宏定义中访问用户自定义过程
+    + hygienic macro
+        + 包括两个要素，referential transparency和hygienic
+            + 前者指，对于非模板引入变量以及pattern varaible，该identifier将绑定到macro expansion time时进行lexical addressing的结果上
+            + 后者指，在宏模板中引入的局部identifier，绝不会和模板输入中的symbol发生名冲突
+        + 它的模板中的每个identifier都在macro expansion time进行绑定，每个identifier的身份可能是三者之一：pattern variable、bound variable(hygienic相关)、free variable(referential transparency相关)
+        + unhygienic macro(defmacro)展开的结果，是纯datum；而hygienic macro(define-syntax)展开的结果，是包含bound variable的datum，后者是由pattern varaible和bound variable代换后得到的
+        + 在scheme中要使用unhygienic macro，需要使用with-syntax来引入绑定到固定值的新pattern varaible
+            + 比如实现this、yield、await等关键字
+    + 宏的特点和对策
+        + 特点
+            1. call-by-name: 有副作用时破坏正确性；非优化编译器中还有计算量上的额外开销
+            2. dynamic scoping: 惊喜
+            3. 在宏中引入局部变量时的名冲突：惊喜
+            4. 另外，宏的实现可能应该让实参的求值顺序符合直觉
+        + C宏:
+            1. 无视副作用；或者，引入新名字来cache值，但会造成命名冲突
+            2. 无解
+            3. 无解
+        + defmacro(unhygienic macro)
+            1. 引入新名字cache值，用gensym避免名字冲突
+            2. 无解
+            3. gensym
+        + define-syntax(hygienic macro)
+            1. 引入新名字，hygienic属性避免了名冲突
+            2. referential transparency的属性
+            3. hygienic属性
+    + 一般在lisp系统中，调试宏展开有expand和expand-1等过程
+    + 由于S-expression的特点，函数调用和special form在语法上没有区别，唯一的区别是求值规则不同
+    + 什么时候使用宏，什么时候使用过程？
+        + 只在无法用过程实现时才使用宏！即，需要特殊的求值规则时才使用宏
+    + quote、quasiquote、unquote、unquote-slicing是scheme内置的模板系统，进行语法变化和数据处理时非常方便
+    + 在pure functional programming language中(比如haskell)，因为不能访问IO，所以无法用print来调试，故你的编写完备的单元测试
+    + stream和amb都能实现无限的数据结构
+    + S-expression作为前缀记法(polish notation，相对的是虚拟机字节码采用的reverse polish notation)的优点:
+        + 无歧义，不需要优先级
+        + 每个operator支持无限个operands
+    + 注意写递归的hygienc macro时，其递归部分绝不该被多次引用，尤其注意这里宏参数的call-by-name陷阱。否则其时间复杂度会上升到指数级，类似fibonacci的递归算法
+        + 对测试是，如果需要将递归部分作为参数来调用其他宏，先用let将递归部分绑定到一个变量
+    + 实现scheme解释器的三要素分别对应于SICP中一再强调的DSL三要素
+        1. 基本元素 —— 求值变量(进一步扩展的话，还能把self-evaluating包含进来)
+        2. 组合 —— 求值调用，即先求值operator和operands，再将后者apply到前者
+        3. 抽象 —— 求值lambda
+            + 剥离抽象的方法，是用pattern matching(甚至unification)约束变量后，然后求值抽象本体
+    + lisp的pattern matching非常适合用来写parser、assembler、macro等
++ C/C++
+    + 实参的求值顺序不定，因此`f(read1(), read2())`是很危险的，因为不知道用户的实际输入对应的是哪个参数。因此避免同一个表达式中出现多个副作用操作
+    + 尽管C/C++编译器往往不支持尾递归优化，但可以将函数体写成for(;;)，再改写尾递归调用为修改参数+continue，就能手工完成尾递归优化。这在写FP解释器时尤为重要
++ 比较mark & sweep和copy & compacting
+    1. compacting后，碎片少，换页少，cache利用率高
+    2. 前者是O(a)+O(n)的(这里的a是活跃块，n是所有块)，后者是O(a)的，如果活跃块:总块数的比值很小，即大部分都是垃圾，那么copy&compacting性能优势明显
++ Continuation和CPS
+    + Continuation的常见作用
+        + 多值返回
+        + 异步callback
+        + 普通递归转化成尾递归(如果再进一步支持尾递归优化的话，就相当于将递归的栈完全转移到堆中)
+        + 提供成功/失败两个continuation分支。比如运行时/编译期的linear pattern matcher中
+    + 任何lisp系统都可以通过全文CPS变换来去掉call/cc调用
+    + 和Continuation passing style对应的概念是传统的Direct style
+    + logic programming和functional programming使用CPS作为intermediate representation，而imperative programming使用SSA作为IR
+        + SSA等价于CPS去掉non-local control flow后的子集
+    + CPS令catch/throw、coroutine、amb等non-local control flow易于实现
+    + 在CPS中，所有的函数都有一个k参数；所有的call，其操作符要么是变量要么是lambda
+        + 基本过程通过重命名op->op&来区分，比如DS表达式(* a (+ b c))的CPS版本是:
+
+           (+& b c (lambda (v)
+                    (*& a v k))) 
+
+        + 像这样，将表达式转化CPS过后，基本过程op&可以进一步优化掉
+    + CPS的内存模型
+        + 将一个程序看做一颗调用树，main函数是根，main函数的各个调用语句对应各个子树，其他函数以及它函数体内的调用也看做父节点和子树的关系
+        + 一个程序的运行，就是这颗调用树的部分遍历(忽略递归)，输入不同，遍历就不同
+        + 一个程序的运行，可以看做程序状态的一个序列，程序历经整个序列后结束；其中每个程序状态，是对调用树遍历的一个静态快照
+        + Directy style和程序状态的关系
+            + directy style用栈来遍历调用树，随着遍历的进行，栈顶会push/pop(对应call/ret)
+            + 一个程序状态(即遍历的某个瞬间)，对应于栈在某刻的snapshot，从栈顶到栈底的各帧，对应于沿调用树上某个节点沿父节点上溯形成的链
+            + 一个程序状态和directy style中栈的snapshort一一对应，换句话说，一个程序历经各个栈的快照后结束
+            + DS通过变化的栈来模拟遍历的过程，栈的深度表示调用树中当前节点的深度；整个过程中没有冗余，内存管理高效、实时，没有任何历史信息
+            + 要保存某个程序状态，在DS中需要dump整个栈，开销很大(有可能实现用户态的copy on write吗？)
+            + DS中仍然可以实现部分仅依赖于祖先节点而非历史状态的non-local control flow，比如exception(它只关心throw节点以及各个catch的祖先节点)
+        + Continuation passing style和程序状态的关系
+            + 一个过程体中有多个子调用，在CPS中，对第i颗子树的遍历，被表达为以K(i+1)为参数调用C(i)，其中C(i)是第i个子调用的过程，而K(i+1)是它的continuation；K(i+1)包含了i+1~n的子调用信息，它接收一个值，并继续执行以K(i+2)对C(i+1)的调用，该过程递归下去
+            + 随着调用树的遍历，遍历过程会先后历经对父节点P的子树C0~Cn的遍历，都进行完毕过后，P节点遍历完毕，改为继续遍历P的父节点
+                + 在DS中，这个先序遍历表现为，将P入栈，再将C0入栈、出栈，再将C1入栈、出栈，最后弹出P
+                + 在CPS中，这个先序遍历表现为，以K(1)调用C(0)，K(1)在C(0)中被调用后，导致K(1)过程体中的以K(2)调用C(1)被触发，最后当C(n)执行完毕后，它会调用来自父节点的K(p)
+            + 如果C(i)是复合过程的话(lambda)，以K(i+1)调用C(i)，会导致递归，C(i)的过程体中，又有一系列的子调用，它们也会被组织成一系列的CPS调用，在这个环境中K'(p)等于上一帧的K(i+1)
+            + 一个程序状态，由一系列的调用节点组成，第i个节点有个状态s(i+1)表示下一步应该遍历其第i+1个节点；因此，一个程序状态可以用数组[s0(i0), s1(i1), s2(i2), ...]来表示，其中数组的前后两项互为父子调用, ik表示深度为k的子调用下一步应该遍历的子树，sk表示深度为k的子调用的过程，比如s0为main，而sk(ik)表示取sk这个过程的第ik个子调用
+                + DS中，sk(ik)被存储在栈上，call的时候push，ret的时候pop，栈顶的帧将sn(in)存储在eip中
+                + CPS中，用continuation chain来表示某个程序状态中的各个调用节点，该链上第k个节点的ck就表示sk(ik)，因为ck这个continuation在语义上就是接下来应该做的事
+            + 因为continuation chain是FP风格的，程序运行的一系列状态被模拟为一系列的chain，相邻的两条chain只有顶上的节点不同，而前面的n-i个节点完全共享(是共享，而不只是相同，因为FP风格)
+            + 在不考虑set!的情况下，CPS通过不停的创建新的continuation chain的方式来模拟遍历(创建方式是: old-chain => (cons (next (car old-chain)) (cdr old-chain)))，所有的历史都在内存中
+                + 这就要求：高效的GC
+                + 提供的能力：保存下任何时刻的一个continuation chain或者其前缀(一条continuation chain和它的任意前缀都是整个程序中的一个状态)，就能在将来的任意时刻利用该chain重新计算；这就提供了CPS以non-local control flow的能力，甚至像amb那样的时间机器的能力
+            + CPS中，保存一个程序状态，只需要存储一个continuation chain(或者简单的说，就是continuation)，这是无成本的，唯一的影响是GC，以及副作用(set!)的干扰
+        + DS使用系统栈来模拟程序状态，CPS使用continuation chain来模拟程序状态，前者在栈上，后者在堆中，故后者的递归深度只受堆容量影响而不受栈容量限制
+        + CPS模型中，永远都在进行调用，或者是调用C(i)，或者是调用K(i+1)，而不会返回(直到遍历结束才返回)，故，必须要求解释器实现尾递归优化，这样才能实现chain的O(d)堆空间以及O(1)的栈空间需求
+            + 如果没有尾递归优化，那么，CPS对系统栈的需求是O(n)，这里的n是调用树的一个遍历中所有节点的总数，而非DS的O(d)栈需求
+        + DS的空间需求是O(max(d))
+        + CPS的空间需求是O(n)。内存中共有n个chain，但n个chain的cdr都共享。其中有一个活跃的chain，k个由于call/cc而被引用的特殊chain，以及一系列没有引用可被GC的历史chain；另外还有O(1)的系统栈需求(如果没有尾递归优化，则是O(n)的栈需求)
+    + 关于尾递归算法和非尾递归算法(这里指没有经过任何特殊变换的原始算法)
+        + DS
+            + 尾递归算法：O(1)的栈，O(n)的时间
+            + 非尾递归算法：O(d)的栈，O(n)的时间
+        + CPS
+            + 尾递归算法：O(1)的栈，O(1)的堆，O(n)的时间
+            + 非尾递归算法：O(1)的栈，O(d)的堆，O(n)的时间。当然，必须先将非尾递归算法转换为CPS，后者本身就是一种尾递归形式，但这个转换不影响空间复杂度
+    + call/cc的参数f所接受的那个参数k，就是continuation，因此CPS解释器和CPS translation都很容易实现call/cc
+    + 有一种CPS的变形，我将它叫做VCPS
+        + CPS中，以k调用一个过程，会立即求出结果并调用k输出
+        + VCPS中，以k调用一个过程，会返回一个pair(v1 k2)，调用(k2 v1)会进一步返回(v2 k3)，最终返回(vn k)，这时再调用一次，最初的输入k就会以最终结果vn被调用了
+            + 相比CPS的自动求值，VCPS是由外部来驱动的，外部可以控制这个节奏
+            + 由于需要创建n个pair，VCPS会稍微慢一点(lua/python等可以用tuple)
+            + VCPS不要求尾递归优化的支持(注意，即使host语言不支持尾递归，也很容易用专门技巧实现尾递归优化的解释器的)
+            + VCPS很适合用来生成递归数据结构的迭代器
+                + Python/C#的yield只适合用来生成非递归容器的迭代器，对于递归容器，需要以其他方式线性化。当然你可以用yield模拟coroutine，但很丑陋
+                + 可以用coroutine来生成递归ADT的迭代器，但有的语言没有协程，有的语言其协程性能差(比如在scheme中call/cc模拟的协程)
+        + VCPS的实现
+            1. 将树遍历(无论是ADT容器的遍历还是语法树的遍历)由DS改成CPS，所有的过程都有一个额外参数k
+            2. 对于会产生值的递归节点，将k(value)改为(cons v k)
+            3. 对于不会产生值的节点，直接调用(k nil)
+            4. 注意该算法中的语义变化
+                1. (proc arg1 ... argn k)，输出不再是以v调用k了，而是(cons v1 k2)(这里的k2可能不是k)；输出也可能是(k nil)的输出
+                2. (k v)在CPS中不返回，而VCPS中它会立刻返回(cons vi ki+1)
+        + 总之VCPS的特点是：不要求宿主支持尾递归；写迭代器很方便
++ 编写递归数据结构的迭代器
+    + 协程。coroutine，call/cc等
+    + 在迭代器中携带手工维护的栈
+    + VCPS。等价于携带栈的方法，但编码更容易
+        + 在racket上，该方法实现的迭代器性能秒杀list、stream、call/cc等方案
+        + 在lua中，性能不及coroutine
+    + ADT专用算法，如二叉树的parent节点，线索二叉树
++ C/C++ project
++ Scheme project
+    + 用racket实现的amb解释器，居然比直接用racket的call/cc实现amb高效得多；另外自己实现的cps解释器中的call/cc也比racket的call/cc高效得多...
+
