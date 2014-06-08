@@ -356,3 +356,36 @@
     + 比较啰嗦的parser combinator尝试
     + lisp 99 problems中的50余题
     + project euler的前50题
+
+#### 8. The little schemer
++ 先正确，再简化/优化
++ Use help function to abstract from representation
+    + 要从多个实现中提取公共部分，方法是，将公共部分提取成函数(更高级的抽象)，然后将多个版本的变化以高阶函数的方法作为参数传入
++ 需要将一组参数/动作打包的时候，用build过程
++ car, cdr。cdr读作could-er
++ 递归过程中，每次至少修改一个参数，这个改动将让递归逐渐趋向结束条件(不考虑通过副作用修改free varaible)
+    + total function: 会返回的递归函数，其递归过程趋于收敛。
+    + partial function: 递归条件是否收敛不可知，可能永远不结束。等价于while(true);的递归，是most partial function
+        + 比如游戏；比如(even? recur(n/2); odd? recur(3*n+1))的经典算法
+    + 要写出判断一个函数是total还是partial的过程halt?，是不可能的，这就是经典的停机问题
+        + 和halting proof等价的一个问题是，无法写出一个函数，用于判断f1、f2对任意输入n都等价
++ SICP中反复提到的三要素，primitive、combination、abstraction，正是lambda calculus原始定义的三要素(variable, application, lambda abstraction)
++ 抽象和表现的分离。一个案例，数值zero, one, two, three是抽象(可以基于抽象运算符zero?,add1,sub1)，而表示可以是:
+    + 符号(symbolic): 0, 1, 2, 3
+    + church numeral: (lambda (f x) x), (lambda (f x) (f x)), (lambda (f x) (f (f x))), (lambda (f x) (f (f (f x))))
+    + 列表: (), (()), ((())), (((())))
+    + 列表: (), (()), (() ()), (() () ())
++ scheme中的惯例，如果一个list的car也可以是list，那么这样复合的list就是S-expression了
++ 写meta-circular解释器时，env-lookup实现中，frame-lookup的参数应该是frame, name, fail，如果一个frame找不到，则会以name为参数触发fail，env-lookup依赖这个机制递归的查找cdr frame-list
++ 在scheme或者说lambda演算中，call form的术语是application
++ 实参: actual arguments；形参: formal arguments，又叫formal parameters
++ lazy evaluation的相反概念是eager evaluation
+    + 描述参数的相关术语: nonstrict, strict
+    + 描述语义的相关术语: normal order, applicative order
++ 我熟悉的Y-combinator其实是applicative-order Y combinator
+
+#### 8. 黑客与画家
++ static vs dynamic typing
+    + 静态类型的优点：类型检查，更少的bug；compile time binding的优势，优化分析
+    + 动态类型的优点：更自由的程序结构(想象Y-combinator、curry、memoize的函数签名会怎样)；作者称，静态语言无法实现用于语法变化的宏
++ 软件的圣杯，可复用性(reusability)
