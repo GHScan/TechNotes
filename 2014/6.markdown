@@ -391,3 +391,152 @@
     + 静态类型的优点：类型检查，更少的bug；compile time binding的优势，优化分析
     + 动态类型的优点：更自由的程序结构(想象Y-combinator、curry、memoize的函数签名会怎样)；作者称，静态语言无法实现用于语法变化的宏
 + 软件的圣杯，可复用性(reusability)
++ counter的例子中，python等语言需要各种手工hack来弥补语言缺陷，这其实就是在扮演人肉解释器的角色，是所谓"任何C程序复杂到一定程度后，都会内置一个lisp解释器，或者程序员自己充当人肉解释器"
++ 如果在程序中发现了大量的模式，则这本身就是错误；程序只应该反应要解决的问题，重复的模式说明抽象不够深，在做着人肉解释器的工作，应该考虑用宏进行syntactic abstraction了
+
+#### 9. Peter novig: Design pattern in dynamic programming
++ 16 of 23 patterns are either invisible or simpler
+    + First-class types: Abstract-Factory, Flyweight, Factory-Method, State, Proxy, Chain-Of-Responsibility 
+    + First-class functions: Command, Strategy, Template-Method, Visitor 
+    + Macros: Interpreter, Iterator 
+    + Method Combination: Mediator, Observer 
+        + Combinator origned?
+    + Multimethods: Builder 
+        + Multiple dispatch?
+    + Modules: Facade
++ First-Class Dynamic Types 
+    + First-Class: can be used and operated on where any other value or object can be used 
+    + Types or Classes are objects at run-time (not just at compile-time) 
+    + A variable can have a type as a value 
+    + A type or class can be created/modified at run-time 
+    + There are functions to manipulate types/classes (and expressions to create types without names) 
+    + No need to build extra dynamic objects just to hold types, because the type objects themselves will do 
++ First-Class Dynamic Functions 
+    + Functions are objects too 
+    + Functions are composed of methods 
+    + There are operations on functions (compose, conjoin) 
+    + Code is organized around functions as well as classes 
+    + Function closures capture local state variables (Objects are state data with attached behavior; Closures are behaviors with attached state data and without the overhead of classes.)
++ Macros 
+    + Macros provide syntactic abstraction 
+        + You build the language you want to program in 
+    + Just as important as data or function abstraction 
+    + Languages for Macros 
+        + String substitution (cpp) 
+        + Expression substitution (Dylan, extend-syntax) 
+        + Expression computation (Lisp) 
+            + Provides the full power of the language while you are writing code 
++ Method Combination 
+    + Build a method from components in different classes 
+    + Primary methods: the “normal” methods; choose the most specific one 
+    + Before/After methods: guaranteed to run; No possibility of forgetting to call super ; Can be used to implement Active Value pattern 
+    + Around methods: wrap around everything; Used to add tracing information, etc. 
+    + Is added complexity worth it? 
+        + Common Lisp: Yes; Most languages: No
++ Other Invisible Patterns:
+    + The following patterns are invisible in dynamic languages, and usually implemented more efficiently 
+        + Smart Pointers: Pointers that manage copy constructors
+        + Reference Counting: Automatic memory management
+        + Closures: Functions with bound variables
+        + Wrapper Objects: Objects with one data member, a primitive type such as a character or 32-bit integer
++ New Dynamic Language Patterns:
++ First-Class Patterns: make the design more explicit 
+    + Subroutine
+        + Long ago, subroutine call was just a pattern 
+        + Involves two parts: call and definition 
+        + Nowadays, made formal by the language 
+        + Note there are still 2 parts in formal use of pattern 
+        + Many patterns are harder to define formally because their use is spread out over more than two places
+    + Abstract class
+    + Generic function
+    + Macro
++ Iterators: a study of C++, Dylan, Smalltalk and Sather 
+    + Iterator 
+        + C++ STL
+    + Internal Iterator
+        + C/C++
+        + Smalltalk: Passing a block to the `do` method: `employees do : [ :x | x print] `
+        + Inconventient for iteration over multiple collections
+            + How dou you compare two collections?
+            + How do you do element wise A:= B + C?
++ Coroutine
+    + Intent: separate out distinct kinds of processing; save state easily from one iteration to the next 
+    + Implementation: Most modern language implementations support an interface to the OS’s threads package. But that has drawbacks: 
+        + No convenient syntax (e.g. yield, quit) 
+        + May be too much overhead in switching 
+        + Problems with locking threads 
+    + Implementation: Controlled uses of coroutines can be compiled out (Sather iters, Scheme call/cc) 
++ Control abstraction
+    + Most algorithms are characterized as one or more of: 
+        + Searching: (find, some, mismatch) 
+        + Sorting: (sort, merge, remove-duplicates) 
+        + Filtering: (remove, mapcan) 
+        + Mapping: (map, mapcar, mapc) 
+        + Combining: (reduce, mapcan, union, intersection) 
+        + Counting: (count) 
+    + Code that uses these higher-order functions instead of loops is concise, self-documenting, understandable, reusable, usually efficient (via inlining) 
+    + Inventing new control abstractions is a powerful idea 
++ Mixing compile time and run time: Memoization, Compiler, Run time loading, Partial Evaluation
++ Memoization
+    + Intent: Cache result after computing it, transparently 
+    + Complications: Know when to empty table, how many entries to cache, when they are invalid
++ Compiler 
+    + Like the Interpreter pattern, but without the overhead 
+    + A problem-specific language is translated into the host programming language, and compiled as normal 
+    + Requires complex Macro capabilities May or may not require compiler at run time 
+    + A major factor when Lisp is faster than C++ 
+    + In a sense, every macro definition is a use of the Compiler pattern (though most are trivial uses) 
+    + Examples: Decision trees; Window, menu layout; Definite Clause Grammar; Rule-Based Translator
++ Run-Time Loading 
+    + Intent: Allow program to be updated while it is running by loading new classes/methods (either patches or extensions). Good for programs that cannot be brought down for upgrades. 
+    + Alternative Intent: Keep working set small, start-up time fast by only loading features as needed 
+    + Implementation: DLLs, dynamic shared libraries. 
+        + Language must allow redefinition or extension
++ Partial Evaluation 
+    + Intent: Write literate code, compile to efficient code 
+    + Implementation: Mostly, at whim of compiler writer (Harlequin Dylan, CMU Lisp compilers good at it) 
+    + Alternative Implementation: Define a problem specific sublanguage, write a compiler for it with partial evaluation semantics 
+    + Example: Macro call horner(1 + 2 * x + 3 * x ^ 2) expands to 1 + x * (2 + 3 * x) 
++ Design Strategies 
+    + What to Build 
+        + Class Libraries / Toolkits: Generic (sets, lists, tables, matrices, I/O streams) 
+        + Frameworks: Specialized (graphics), “Inside-Out” (callbacks) 
+        + Languages: Generic or Specialized (Stratified Design) 
+        + Design Process: Source control, QA, Design rationale capture, ... 
+        + Metaphors: Agent-Oriented, Market-Oriented, Anytime Programming
+    + How to Build 
+        + Programming In a language: The design is constrained by what the language offers 
+        + Programming Into a language: The design is done independently of language, then the design is implemented using features at hand 
+        + Programming On a language: The design and language meet half way. This is programming into the language you wish you had; a language you build on the base language. Sometimes called Stratified Design. 
+        + Abstraction
+            + Data abstraction: encapsulation, first-class types 
+            + Functional abstraction: first-class functions, closures 
+            + Syntactic abstraction: macros, overloading 
+            + Control abstraction: macros and high-order functions 
+            + Design process abstraction: abstract away files, deal with phases of project, explicit development process 
+            + Resource abstraction: separate what it takes to do it from what is done (See Open Implementation) 
+            + Storage abstraction: garbage collection, no new, slot access and function calls have same syntax
+    + How to Write 
+        + (Literate programming vs. class-oriented/obsessed) 
+    + Specific Design Strategies 
+        + (Open Implementation; English Translation) 
+    + Metaphors: The Agent Metaphor 
+        + (Is agent-oriented programming the next big thing?) 
+    + Combining Agent Components
+
+#### 9. 杂项
++ Agent-oriented: 面向方法
++ Iterator的一个分支是Internal iterator，它接收一个callback，用递归遍历每个元素触发这个callback；缺点是无法同时遍历多个容器
++ 宏的比较
+    + C/C++: 文本替换(String substitution)
+    + Dylan: 表达式替换(Expression substitution)
+    + Lisp: 表达式计算(Expression computation)、语法变换
++ 三种境界：
+    + Programming in a language: 用语言提供的特性编程
+    + Programming into a language: 语言没有提供的特性，人工模拟
+    + Programming on a language: 在host programming language之上做一门DSL，然后以DSL编程
++ 抽象
+    + Data abstraction: encapsulation, first-class types
+    + Functional abstraction: first-class functions, closures
+    + Syntactic abstraction: macros, overloading
+    + Control abstraction: Searching, Sorting, Filtering, Mapping, Combining, Counting.. higher-order functions
