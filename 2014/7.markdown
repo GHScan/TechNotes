@@ -89,6 +89,7 @@
         2. 原语yield: 将callstack顶上的stackframe弹出
         3. apply时除需要支持native function、script function，还需要支持stackframe对象作为operator
     + 在该机制下，(+ 2 3)等价于((stackframe + 2 3))；对于不包含yield的函数，后者等价于前者，如果包含yield，那么就不同了，可以先(stackframe f 2 3)得到stackframe对象，再多次apply
+    + 相对的，coroutine需要first class stack的支持。
 + 关于抽象解释
     + 将值域缩小到特定范围后的解释过程
     + 例子
@@ -99,7 +100,106 @@
         + 解释代码求evalstack深度。环境是符号表，值域是深度
         + CPS变换：环境是上下文，值域是变换后的代码
         + 寄存器分配: 环境是寄存器使用上下文，值域是寄存器名
++ 关于dynamic scoping
+    + 作用域查找，即确定变量在哪个作用域，叫scoping
+    + 作用域查找即变量位置查找，叫addressing
+    + 所谓lexical adderssing，是指能够通过源码推断出变量的地址，即编译期寻址。是一种eager binding
+    + dynamic scoping，是指在运行时进行变量定位，分两种:
+        1. 基于execution context查找。这里的execution context即env chain。比如Javascript的with
+        2. 基于calling context查找。即基于调用栈帧查找。比如Common lisp中的dynamic scoping
++ 在支持first class function的语言中编写递归，应该注意避免函数体依赖函数名，特殊用法除外(如memoize)
+    + 对于javascript，有named function expression
+    + 对于scheme，有named let；其他语言类似
++ Javascript经验
+    + 少用for-in
+        + 基于prototype的OB/OO用法，for-in会遍历prototype中的类方法，多半不是你想要的结果。必须结合hasOwnProperty
+        + 用for-in遍历数组很慢，得到的索引i甚至可能是字符串！
+    + 对于值类型Number/Bool，尽量不要扩展prototype，因为2.method可能会被处理成new Number(2).method，而2 === new Number(2)是false的，所以会有坑...
+    + 在JS这种语言中，应该逆向遍历
+        + a.length如果作为结束条件，那么每次迭代都要进行属性访问，哪怕是inline caching，都会更慢
+        + 如果遍历的是IE中的NodeList，那么a.length是COM对象的属性访问，超慢...
+    + Douglas Crockford的JS编码建议
+        1. 只用===和!==，而不是==和!=
+        2. 不用with。它会破坏lexical addressing，在v8中测试，会比普通的属性访问慢几百倍
+        3. 小心eval，它有性能问题和安全问题
+        4. 总是使用function expression而不是function declaration，因为后者会自动提升，可能成为坑
+        5. 永远不要出现new String(), new Number(), new Boolean(), new Object(), new Array()
+    + 总是使用'use strict'
++ npm install -g pkgname可以安装包到全局；再通过npm link pkgname加到本地供require
 
 #### 9. Javascript高级程序设计，读书笔记
-
-#### 9. 各种项目
++ ECMAScript的诞生是因为浏览器厂商的竞争，多个Javascript的行为不一致导致上层开发困难，才标准化
++ ECMA-262定义的ECMAScript与Web没有依赖关系，它只定义了语言的基础，不包括IO。常见的平台包括：
+    + Web。DOM+BOM
+        + DOM的标准化也是因为IE和Netscape关于DHTML的竞争
+            + DOM1: XML和HTML
+            + DOM2: 鼠标和UI事件、范围、遍历、CSS、视图
+            + DOM3: DOM文档的加载和保存；DOM验证
+        + 还有几种对应DSL的DOM标准
+            + SVG
+            + MathML
+            + SMIL
+        + BOM本身没有标准，只能针对浏览器适配。HTML5解决了这一问题，包括操作浏览器窗口和cookies等功能
+    + Node
+    + Adobe flash
++ `<script>`标签最好放到body最后，这样，加载script之前可以先显示其他元素，而不至于空白
++ 外部`<script>`的优点:
+    + 可维护。比如版本控制
+    + 浏览器可缓存，避免重复下载
+    + 不需要内部`<script>`的一些注释hack等(比如<到底应该被当做小于还是tag的一部分)
++ JS编码风格
+    + 用''来表示字符串。这样，JS代码片段可以被插入html属性的""中
+    + 总是用`;`而非换行来分割语句，为了JS源码可压缩(移除空格和换行)。也算是对运行时JS parser性能有所帮助
++ DOM、BOM中的对象都是宿主对象，其行为不受ECMA-262约束。比如IE中的DOM对象就是COM
++ ECMAScript的Number是IEEE754规定的双精度浮点，但bitwise op是作用在32bit整形上的，JS解释器自动转型
++ JS和Java一样通过>>>和<<<来处理逻辑移位
++ 引用未定义变量会抛错，但if/短路逻辑中的未定变量引用，只要没执行就不抛错
++ 没有goto label，但是有break label、continue label
++ 关于属性枚举
+    + obj.hasOwnProperty(), Object.keys(), Object.getOwnPropertyNames()，访问的都是instance proprety
+    + for-in, in访问的是instance + prototype的property
++ JS的switch相当于if/elseif，因此case中可以出现任何类型和表达式(甚至是运行时表达式)
+    + switch的case匹配用的是===
+    + switch(true)，然后每个case都是test，是典型用法，用来代替if/elseif列表
++ 总是可以用arguments来访问实参；如果形参太多，那么多余的形参是undefined
++ 没有返回的函数，实际返回undefined
++ String是基本类型，不是Object的派生，因此不能添加属性
++ typeof和instanceof
+    + typeof依据type tag，可以识别基本类型和object；虽然function实际上是一种callable的object，但为了方便使用，会返回'function'
+    + instanceof依据prototype chain，而对象隐藏的prototype，是在new时绑定的。因此instanceof多用于OO
++ ECMAScript的全局环境，在Web上可以通过window来访问，在Node中通过global访问
++ 注意字典literal也是在new Object，因此它的prototype就是Object.prototype
++ object的属性名总是string
++ 在API设计中，可以用字典来整合optinal参数
++ a.length = n；可以直接扩展/收缩数组
++ 如果存在多个window/global对象的话，instanceof用来判断Array/String/Date就不靠谱了，所以应该用内置函数Array.isArray, Date.isDate等
++ Array.prototype.sort默认是基于对象的toString比较，因此一般都应该传入特殊的比较器
++ JS中没有块级作用域，var声明都会自动提升，效果等同于C语言中只能在函数开始声明所有变量
++ 写递归时，通过arguments.callee来递归比直接引用函数名或者function expression名字要慢很多
++ this是lexical addressing的，它和arguments一样，是隐含参数。如果调用方不是dot expression的话，函数体中的this就被初始化为window(严格模式中是undefined)
++ 严格模式下不能访问arguments.caller是出于安全考虑，避免访问调用方的源码字符串
++ eval访问的是全局环境(window/global)
++ Object.defineProperty访问属性，可以定义writable，getter/setter等
++ Object.preventExtensions禁止添加属性；Object.seal，进一步，禁止修改property的属性；Object.freeze，再进一步，不允许写属性值
++ 构造函数也只是普通函数，如果不用new而是直接调用，结果是将属性绑定在了window/global对象上
++ 对象内部持有的是new时刻的prototype，因此修改旧的prototype对象，对象行为改变；而修改构造函数的prototype属性，早创建的对象不受影响
++ 闭包实现的OO有属性的受限访问这个好处
++ JS中的常见对象模型
+    + OB：设置构造函数的prototype，然后new
+    + OO: 将派生类的构造函数的prototype设置为基类的对象，或者从基类构造函数的prototype中Object.create出来；派生类的构造函数要base.call(...)来初始化基类属性；最后new
+    + Object.create，访问链，有点像运行时的with
++ JS的声明提升和Scheme中的不一样，前者相当于语句直接出现在了函数开头，而后者是被define被拆成了开头的define以及后面的set!；从正确性上来说，后者更容易理解，没坑
++ JS不支持块级作用域；但似乎全局环境下的块却是有局部作用域的...
++ JS中obj.method返回的不是bound function，需要手工bind
++ module模式很常见，避免了全局名污染
++ 引用没有声明的全局变量会抛错，但是window.name却只是返回undefined
++ 如果允许注册回调，不应该用callback != null来判断，而应该typeof callback == 'function'；即，总是用typeof/instanceof来确认变量是你要的；更进一步说，想要什么，要说明的足够清楚，不要含糊！
++ Array的slice、concat都可以用于clone
++ 对于行为类似的Array但设计不是Array的对象，可以尝试用Array.property.method.call(obj, ...)来访问；比如arguments、NodeList
++ bind支持currying，即除了绑定this外，还可以绑定其他实参
++ 一个技巧：resize会连续触发大量事件，但我们只应该执行动作一次，因此，通过clearTimeout和setTimeout来确保动作只执行一次，在最后一次事件被触发后执行
++ chrome里有profile工具
++ chrome里的window.performance.now提供高精度计时
++ JS源码压缩的一个方法：通过parser将所有变量名替换成短串，根据出现频率来分配串长度，最高频的名字被替换成单字母a,b,c,d等...
++ 用eval可以parse JSON，更严格的应该用JSON.parse
+    + 可以用toJSON定义序列化到JSON的方法
