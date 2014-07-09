@@ -1,0 +1,105 @@
+#### 9. 杂项
++ 关于GC
+    + .Net的Generational GC第0代默认选择256K，因为这是L2的大小
+    + JVM的分代GC概念
+        + 三代
+            + Young generation
+                + Eden, 空间x8
+                + Survivor from, 空间x1
+                + Survivor to, 空间x1
+            + Old generation
+            + Permanent generation
+        + 分配的时候，在Eden和Survivor from上，一旦满额，就应用Copying GC的机制拷贝到Survivor to中，如果Survivor to空间不足，则拷贝到Old generation中。典型的，Young generation的一次GC希望回收90%
+        + 如果只对Young generation回收，则称为minor GC；否则称为major GC或full GC
+        + Old/Permanent generation对Young generation的引用通过card table来标记
++ 几种GC的对比
+    + mark and sweep
+        + 复杂度：标记阶段是O(a)，这里的a是活跃对象；清扫阶段是O(n)，需要遍历每个对象
+        + 指针不被搬移，地址稳定，可以利用memory pool，比如tcmalloc
+    + copying gc
+        + 复杂度：O(a)，只处理存活的对象。因此对于第0代这种回收率极高的场合，非常适合
+        + 指针搬移，GC完毕后需要更新所有对象、以及栈上寄存器/临时变量中的的指针；或者总是用Handle来访问
+        + 分配迅速，只是freeOff的加法
+    + mark and compaction
+        + 一般4趟：
+            1. 根据reachable graph，遍历标记
+            2. 遍历整个堆，为每个存活对象计算新地址，保存在对象头的forward字段中
+            3. 遍历整个堆，对于每个存活对象，遍历其中的每个引用字段，将字段值替换为旧指针对应的forward值
+            4. compaction
+        + 复杂度O(n)，因为需要多次遍历所有的块
+        + 指针搬移
+        + 分配迅速，加法
++ 对于variant/any/object的概念，常见的实现方案包括，tagged union和tagged pointer，以及object指针
++ C++中的转型
+    + 对于有符号、无符号，姑且允许直接用C-style转换
+    + 对于class/struct指针，一定要用`static_cast`等C++-style转型，因为后者包含了更多的类型信息，可以在编译期检测出逻辑错误
+        + 比如，对于A和B这两个类型，你期望他们有继承关系，所以用`static_cast`来处理指针转换，但由于人为失误，他们没有继承关系，这时，C++编译器会检测出该`static_cast`使用非法；如果你确实要在两个没有继承关系的指针间转型，就应该确实的使用`reinterpret_cast`。此为利用类型信息发现逻辑错误的典型
++ 在Scheme解释器中统一数据和代码的方式(跟quote有关)
+    1. 代码和数据是同一格式，比如用Scheme、Python来写解释器，代码和数据都用list表示。浓浓的FP味儿
+    2. 代码是经过词法寻址后的优化形式，而数据是纯粹的列表，(eval (quote ...))的时候，需要将列表编译优化过的代码形式。实际的高性能解释器方案
++ 关于实现Scheme解释器的几个层次
+    1. 递归解释器，宿主语言(解释器的实现语言)不支持尾调用优化(如Python/C#/Javascript): Scheme程序轻易栈溢出(尤其考虑到Scheme中用递归表达循环的风格)
+    2. 递归解释器，宿主语言支持尾调用优化(如C++/Lua)，或者将eval手工改为尾递归优化形式(修改eval参数后goto到函数开始): Scheme程序中的尾递归函数不再栈溢出，但大量的非尾递归仍然溢出(如cons)
+    3. 递归CPS解释器，或者用普通的递归解释器解释经过全文CPS变换后的Scheme程序：不再有栈溢出
+        + 这里有一个考虑，用户自定义函数肯定是CPS风格了，那内置函数呢？DS风格？慢了。如果内置函数和自定义函数都需要作为高阶函数传给map等函数作为参数呢?
+    4. 字节码解释器，使用ADT的stack来实现脚本栈而不再是复用native栈：不再溢出
+        + 在输出的字节码中插入tail指令，进行tail call optimization，性能提高显著
++ Python的tuple赋值左端，可以当做一个简单的模式匹配器使用
++ 关于VCPS
+    + 用于做迭代器很方便
+    + 对于递归CPS解释器来说，要求宿主语言支持尾调用优化，如果不支持的话，如C#，就需要写成VCPS风格。但其实无需全文都写成VCPS风格，只需要在几个关键点，如求值application时将最后一步apply给换成(cons args k)即可
+        + 经实测，这将VCPS的中间pair结构数量下降到1/4
++ 全文CPS变换程序中用到的CPS本身的一个技巧：
+    + k(result)的返回值仍然可以进一步处理！即还可以包裹一层ctx！如(ctx (k result))
+    + 合理利用k的返回值，在特殊场合下可能大幅简化程序！
++ 4类lambda环境模型
+    1. 堆环境：如Scheme、Javascript的原始模型
+        + 调用一个函数的时候创建一个新环境块儿，所有局部变量都放在里面；在该作用域内创建函数时，会保存整个局部环境作为free varaible寻址用
+        + 没有块级作用域
+    2. 堆变量
+        + 每个局部变量都是Ref<object>的引用，创建函数时，函数会引用它以及它内嵌的子函数需要的free varaible的Ref<object>引用。Ref<object>通过引入了一个间接层，让局部访问以及free variable访问都能共享的作用到其他作用域，因为只保存了一份数据，所以所有引用总是同步更新
+        + 支持块级作用域
+        + 相当于lua模型的一个简化
+    3. 栈环境+堆环境：如C#的lambda
+        + 分析局部变量中会作为free varaible被引用的集合，在进入函数体过后就创建heapEnv对象，对于非free varaible局部变量，总是通过stack[i]来访问，而对于会被内层引用的变量，总是通过heapEnv[i]来访问。创建函数的时候保存heapEnv对象。
+        + 该方案比堆环境模型更优化，但同样不支持块级作用域
+    4. 栈变量+堆变量：如Lua
+        + 局部变量放在栈中；当创建函数时，对于函数及内嵌函数需要引用的free varaible，创建upValue对象，其内包含一个局部变量地址；当退出作用域时，利用close指令，将当前深度的作用域对应的所有的upValue给close掉，即将栈指针指向堆中
+        + 支持块级作用域
++ 对于不支持块级作用域闭包的语言，如Scheme、C#
+    + Scheme中的循环是递归风格，总是创建新环境，块级作用域的问题不明显
+    + 对于C#、Go、Javascript，总是可以通过`(function() {})()`来模拟块级作用域。尤其是在动态语言/类型推导完备的静态语言中特别好用
++ 在一个经过CPS全文变换的程序中，有两类函数
+    1. 原始代码中的函数，现在全为CPS风格，即总有一个k参数
+    2. 变换引入的k函数。原始码中透明、无法访问
++ 递归的数据结构还是递归算法最自然
+    + 比如parser
+    + 比如迭代
++ C/C++的实参求值顺序不定！
++ 在一个Copying/Compaction GC系统中，保存裸指针是危险的，除了应该确保指针可达外，还应该总是通过类似Handle的间接层来访问指针
++ 加速解释器一个方法是为常用操作提供专门指令、降低解释开销。如
+    + load0, load1, loadnil
+    + loadlocal0, loadlocal1, loadfree1, loadfree2
+    + tjmp, zerojmp, niljmp, eqjmp, lessjmp
+    + inc, dec
++ 字节码解释器中，也可以将callstack隐式的放入evalstack中
++ 关于yield、async/await，可以通过实现first class stackframe来实现
+    + 需要提供的支持:
+        1. 原语stackframe: 利用函数对象及实参，创建stackframe对象
+        2. 原语yield: 将callstack顶上的stackframe弹出
+        3. apply时除需要支持native function、script function，还需要支持stackframe对象作为operator
+    + 在该机制下，(+ 2 3)等价于((stackframe + 2 3))；对于不包含yield的函数，后者等价于前者，如果包含yield，那么就不同了，可以先(stackframe f 2 3)得到stackframe对象，再多次apply
++ 关于抽象解释
+    + 将值域缩小到特定范围后的解释过程
+    + 例子
+        + 编译。环境是符号表，值域是代码
+        + 静态分析。环境是符号表，值域是类型等规则
+        + 类型系统。环境是符号表，值域是类型
+        + 正负号的求值系统。环境是符号表，值域是+-0
+        + 解释代码求evalstack深度。环境是符号表，值域是深度
+        + CPS变换：环境是上下文，值域是变换后的代码
+        + 寄存器分配: 环境是寄存器使用上下文，值域是寄存器名
+
+#### 9. Javascript高级程序设计，读书笔记
+
+#### 9. 各种项目
