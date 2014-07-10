@@ -203,3 +203,240 @@
 + JS源码压缩的一个方法：通过parser将所有变量名替换成短串，根据出现频率来分配串长度，最高频的名字被替换成单字母a,b,c,d等...
 + 用eval可以parse JSON，更严格的应该用JSON.parse
     + 可以用toJSON定义序列化到JSON的方法
+
+#### 10. Haskell趣学指南
++ 1. 简介
+    + 纯函数式编程语言 (purely functional programming language)
+    + 惰性(lazy)
+    + 静态类型(statically typed)
++ 2. 从零开始
+    + 内置函数: pred, succ, max, min, +, -, `*`, div, mod
+    + 函数声明和变量声明，都是=，区别只是有无参数
+    + if e1 then e2 else e3
+    + list
+        + []为空表，相当于scheme的empty
+        + :为插入，相当于scheme的const；而car、cdr则用pattern matching完成
+        + `++`连接两个串
+        + list `!!` i引用第i个元素
+        + [x,y,z]是x:y:z[]的语法糖。这个完全能通过自定义类型(data)来办到！
+        + 内置函数: head, tail, last, init, length, null, reverse, take, maximum, sum, elem, sum, product
+        + 内置函数: take, drop, takewhile, dropwhile, repeat, replicate, cycle
+    + 区间(range)
+        + 要求[a]中的a是typeclass Enum的instance
+        + [first..last]
+        + [first,next..last]，通过first、next可以构造步进
+        + [first..]无限列表，利用lazy evaluation的特点
+    + list comprehension
+        + [x|x<-[1..10]] 单一变量
+        + [x|x<-[1..10], x>10] 添加条件(predicate)，也叫过滤(filtering)
+        + [x|x<-[1..10],y<-[1..10]] 多变量
+        + [[x2|x2<-[0..x]]|x<-[1..10]] 嵌套。非特殊语法
+        + [y|x<-[1..10],let y=x*x] 用let引入中间变量，此处非let表达式，其隐含的in是后面及开头
+    + tuple
+        + list要求所有元素同类型，可变长；tuple允许不同类型，但数量固定
+        + (x,y...)
+        + 内置函数: fst, snd。再多元素的话，用pattern matching提取
+        + 内置函数: zip, zipWith
++ 3. Types and Typeclasses
+    + 在ghci中，用:t看类型，用:i看信息，用:k看类型的kind
+    + 常见类型: Int, Integer(允许无限精度), Float, Double, Bool, Char
+    + Type varaible: 比如 Maybe a, [a]
+    + 注意，typeclass只是静态类型的约束，不是实体类，不能用作函数参数、返回值类型
+    + 内置typeclass
+        + Eq: ==, /=
+        + Ord: < <= > >=。另外compare操作Ord返回GT,LT,EQ。Ord是Eq的派生类
+        + Show: 允许通过show转换为字符串
+        + Read: 从字符串反序列化。使用read时可能需要用::进行类型声明
+        + Enum: 可用于[first..last]，每个元素都有successer和predcesor
+        + Bounded: 有上下界。可以通过`minBound :: Int`和`maxBound ::Int`来访问
+        + Num: 数字特征。一般要求Show和Eq。包含实数和整数
+        + Integral: 整数，包含Int、Integer
+            + fromIntegral可以将Integral转换为目标类型a
+        + Floating: 包含Float, Double
++ 4. 函数的语法
+    + pattern matching
+        + 语法
+            + True/False/1/2/3/"+"等字面值
+            + (a,b....)元组
+            + (x:rest)列表
+            + (constructor a b c d)匹配data的构造器
+        + 利用all@(...)的特殊语法来访问匹配整体
+        + 对于函数匹配，如果内部用了guard但没有找到对应项，会尝试匹配下个模式
+        + case exp of pattern1->... pattern2->...，也是模式匹配
+    + guard
+        + 语法
+            + funcname args | boolexp1 = body1 | boolexp2 = body2 ...
+        + 一般最后一个谓词用otherwise，它永真
+        + 如果条件未能捕获，则进行下个模式匹配
+        + 对比pattern matching和guard，前者用于匹配字面值(常用作递归边界)、拆结构，后者用于匹配区间
+    + 用字母定义、调用前缀函数，通过`id`来定义和调用中缀形式
+    + 用特殊字符定义、调用中缀形式，通过`infixr 7 +`的形式来指定结合律和优先级；通过`(+)`来中缀访问
+    + 关键字where
+        + 放在函数尾部，能作用到所有的guard，但只能影响所在的pattern matching
+        + 可以从上到下定义多个局部变量/函数(就像scheme的let*)，还可以为变量/函数加类型声明，就像顶层声明一样
+    + 关键字let in
+        + 是表达式
+        + let的出现场合
+            + let in表达式
+            + list comprehension引入单一值(而非集合)
+            + 在ghci中定义顶层变量/函数必须用let
+            + do语句中
+    + case exp of patterns...
+        + 同函数的pattern matching，但是是表达式，可以用在各个场合
++ 5. 递归
+    + 例子: 实现maximum, replicate, take, reverse, repeat, zip, elem, quicksort
++ 6. 高阶函数
+    + 所有的函数都是curried function
+    + 两个primary expressoin之间的空格其实是调用! 即lambda application，且拥有最高优先级
+    + 参数不够的情况下，返回partial application
+    + 中缀函数可以根据提供的左值/右值生成对应的partial application。用括号括起来的话，按前缀语法来算
+        + `-`号要小心，因为`-n`会被当做相反数而非partial application，所以改用`subtract n`
+    + flip，交换参数顺序
+    + map, filter。尽管都能直接用list compreshension代替
+    + foldl, foldr, foldl1, foldr1。后面两个表示初始值直接用第0项
+        + scanl, scanr, scanl1, scanr1，类似fold，但是会返回累计的所有元素构成列表。有点像scheme中的stream
+    + lambda。语法是\。一般加括号：`(\x y->x+y)`
+    + 符号$，优先级最低，右结合，用来简化代码写法，减少括号
+    + 符号.，function composition，优先级低，右结合，用来生成新函数
+        + point free style(pointless style): 将函数定义改写成无参数的变量赋值，通过连续的.生成partial application
++ 7. 模块
+    + 装载
+        + import Data.List: 在当前环境中直接可见
+        + import Data.List(f1, f2...): 只有f1, f2...可见
+        + import Data.List hiding(f1, f2...): 除f1,f2...之外可见
+        + import qualified Data.List: 必须通过Data.List.f1来访问
+        + import qualified Data.List as List: 通过别名List.f1来访问
+    + Data.List
+        + intersperse v l2: 将v插入l2的每两个元素之间
+        + intercalate l1 l2: 将l1整体插入l2的每两个元素之间
+        + transpose: 将list的list转置
+        + foldl', foldl1': strict版本(非惰性版本)
+        + concat: 连接一组list
+        + concatMap: 先map再连接
+        + and: list中全为true则true。类似的函数all，接收predicate
+        + or: list中有true则true。类似的函数any，接收predicate
+        + iterate: 将函数反复作用于上次的结果，产生无穷序列。如`iterate (*2) 1`将生成[1,2,4,8,...]  
+        + splitAt, takeWhile, dropWhile. 
+        + span，在predicate为false的时候断开链，返回两个链；break，为true的时候断开
+        + sort
+        + group, groupBy
+        + inits, tails. isIndexOf, isInfixOf，搜索一个list看是否包含子list
+        + isSuffixOf, isPrefixOf
+        + elem, notElem，都返回Bool
+        + patition，返回两个list，第1个都符合条件，第2个都不符合
+        + find，返回第一个满足条件的结果。返回Maybe
+        + elemIndex, elemIndices, findIndex, findIndices
+        + lines, unlines, words, unwords: 处理String非常方便
+        + nub, nubBy去掉重复元素
+        + delete v list: 去掉v的首次出现
+        + `\\`集合差集
+        + union, intersection, insert：操作集合(有序list)
+        + sortBy, insertBy, maximumBy, minimumBy
+    + Data.Char
+        + isControl, isSpace, isLower, isUpper, isAlpha, isAlphaNum, isPrint, isDigit等
+        + genericCategory，接收char，返回枚举，表示Space/Control等类型
+        + toLower, toUpper, toTitle
+        + ord, chr
+    + Data.Map
+        + empty
+        + fromList, insert, insertWith, null, size, singleton, lookup, member, map, fitler, keys, elems
+    + Data.Set
+        + fromList, difference, union, null, size, member, empty, singleton, insert, delete
+        + isSubsetOf, isProperSubsetOf
+    + 建立自己的模块
+        + module Name (f1, f2, ...) where
+        + module Dir.Name (f1, f2, ...) where：允许层级
+        + module Name (Type1(C1, C2), Type2(..), f1, f2, ...) where: 导出类型, 其中Type1(C1, C2)表示为Type1导出C1,C2两个构造子；而Type2(..)表示导出Type2的所有构造子
+            + 只导出创建对象的静态函数，而不导出构造子，也是一种风格，只是用户将无法进行模式匹配
++ 8. 构造自己的Types和TypeClasses
+    + data Type = Constructor1 ArgT1 ArgT2 | Constructor2 deriving(Eq, Show, Read)
+        + 这里的Type只能用于类型的场合
+        + Constructor可以用于表达式场合，用于创建Type类型的对象；也可以用于pattern matching的场合
+        + 其kind是具体类: *
+    + 由于Haskell完备的类型系统，应该和C++一样，不需要携带运行时类型信息，Bool/Int/Float/String等的对象都是纯数据；而Type类型的对象，就是Constructor ID(或者atom) + fields，需要携带Constructor ID用于模式匹配；即类型静态，但constructor动态，对象需要携带用于运行时识别
+    + True/False/1/2/3/3.14/1.414/"abcds"/'a'等都相当于是Constructor
+    + Just和Nothing是Maybe的constructor
+    + data Type a = Constructor1 a Type1 ...: 即data的类型可以参数化
+        + 典型的例子是Maybe/Either/[]
+        + 其kind是: *->*，即输入一个具体类型返回一个具体类型
+    + 可以在data声明前为某个中缀constructor定义`infixr 3 constructor1`
+    + 为避免大量的pattern matching来访问字段，提供record syntax
+        + data Type = { field1::FieldType1, field2::FieldTyp2...}
+        + 然后对于Type类型的对象，可以直接用函数field1、field2访问字段
+    + type A = B，即type关键字用于声明别名，比如String就是[Char]的别名
+    + 用class TypeClass type where ops来定义新的type class
+        + 它只是一种类型约束，描述了generic types应该具有的方法，实际用作函数参数和返回的都是具体类型
+        + 函数主要声明函数名和类型签名(type signature)
+        + 可以用交叉定义，如`x == y = not (x /= y)`来减少类型实例实际应该实现的方法
+            + instance类型必须定义的最小方法集合，叫minimal complete definition
+    + 对于内置type class，可以直接deriving来实现
+    + 对于其他type class，用instance TypeClass Int where ops来实例化，Int类型的哪一组函数实现了该type class
+    + 注意区别，[]是一个variadic type, 而Num是一个typeclass；[a]是一个具体类型(kind为`*`)，而Num a只是一个类型约束声明
+    + 可以用cons/car/cdr定义出自己的list，而使用起来(包括模式匹配)却几乎像[]一样方便!
+    + 考虑实现一个针对任意内置类型的toBool函数，输入False/0/[]/Nothing返回False，其余返回True:
+        + Haskell是静态强类型的，完全没有类型泄露，因此，必须想办法把Bool/Int/String/[]等具体类型携带到toBool的参数
+        + 有两个办法:
+            1. 声明typeclass ToBool，每个具体类型去实例化它，实现ToBool的接口toBool
+                + 该方案其实是实现了重载的多个版本的toBool，针对每个类型，都有一个专门的函数toBool
+            2. 声明data ToBool，利用Constructor(或者说运行时type tag)来区别各个类型，然后以ToBool作为toBool的参数，通过Constuctor进行匹配...
+                + 该方法的缺点是，必须`toBool (FromInt 3)`；而如果要透明的`toBool 3`，其实又需要typeclass了(输入typeclass, 输出带constructor的data type)...总之，这是个思路
+    + 一个案例Functor typeclass，它实例化的不是具体类，仍然是参数类，kind是`*->*`
+        + Functor可以作用域[]/Maybe/Either等
+9. IO
+    + main函数的类型是 IO ()，表示返回空tuple的IO action；getLine是IO String，即返回String的IO action
+    + 从main函数出发的IO action构成了一棵树(do关键字可以携带子树, AST)，解释器只会求值树上的语句。换言之，只有从IO action可达的语句才会被force求值，而其他语句则被lazy放过
+    + do关键字可以将多个IO action打包成一个IO action。这里的子IO action可以包括
+        + getLine, putStr, putStrLn等内置函数
+        + 类型为IO()或者IO a的自定义函数，如main
+        + 在do语句中，要从IO action中取值，用`name <- ioaction`
+        + 在do语句中，用声明中间变量，用`let name = expression`
+    + 要从形如IO a的IO action中取得值a，需要name <- ioaction
+        + 如果手误写成 name = ioaction，其实这是又声明了一个类型为IO a的变量
+    + return关键字，以表达式构造一个IO action，供外层函数<-，或者作为程序返回值
+        + 它只是一个普通的类型为IO a的表达式，不带跳转语义(不是控制流)，所以应该作为tail call。出现在do中段的return看起来会很奇怪，因为实际上不会跳转...
+    + do将源码级的多个IO action打包，而sequence将运行时的一组IO action打包，即输入[IO a]返回IO a
+    + mapM f = sequence . map f
+        + mapM是先map再sequence打包IO actiion的惯用法
+        + forM和mapM一样，只是参数顺序不同，第1个参数是列表，第2个是将元素映射为IO a的函数
+    + 其他几个函数
+        + when函数。出自Control.Monad
+        + forever，出自Control.Monad。循环执行一个IO action
+    + Lazy IO
+        + getContens，从标准输入中返回所有内容，但是是惰性的，所以可以利用输入缓冲。结合lines、words等函数威力强大
+        + interact，接收一个函数，传入所有的标准输入字符串，返回IO a。常用
+        + openFile -> hGetContents -> putStrLn -> hClose
+            + IO相关的函数都有对应的hXXX版本, 如hGetLine, hGetChar, hPutChar, hPutStr
+        + withFile，类似interact，不过可以指定文件，它隐藏了文件的打开关闭，直接传给回调文本内容
+        + readFile, writeFile, appendFile, 直接传入路径，返回或写入字符串(当然要用<-提取返回值)
+        + hSetBuffering, hFlush
+        + openTempFile, removeFile, renameFile
+    + 命令行参数
+        + System.Envrionment
+        + getArgs, getProgName
+    + 伪随机数
+        + typeclass RandomGen是随机数发生器, 而typeclass Random可以是各种Num类型
+        + 可以用mkStdGen创建一个类型是StdGen、满足RandomGen的发生器
+        + random，输入一个RandomGen(比如StdGen类型)，返回Random约束类型，如果分别用::Int, ::Bool, ::Float，可以分别返回不同类型的随机值
+            + random同时还返回一个新的RandomGen，因此，RandomGen其实是函数式结构
+        + randoms，根据一个RandomGen生成无限随机序列
+        + randomR，可以指定一个tuple作为上下界，结果将在这个范围内随机
+        + randomRs, 生成指定范围的无限随机序列
+        + getStdGen，返回一个全局变量的StdGen，每次启动程序的时候都会不同
+        + newStdGen，创建一个新的StdGen，同时还会更新全局StdGen，影响getStdGen的返回值
+   + Bytestrings 
+        + 在IO的时候，输入输出String这个惰性list，性能太差，因为相当于每个字节都有一个thunk，作为选择，可以改用Data.Bytestrings或者Data.Bytestrings.Lazy，前者是完全非惰性的，完整的加载进内存，后者是以64K为thunk单位的部分惰性数据结构
+        + Data.Bytestrings以及Data.Bytestrings.Lazy中有IO相关的全套函数
+            + 比如readFile, writeFile等
+        + 当IO规模很大的时候，逐字节的lazy不划算，考虑用Bytestrings，可能有显著的性能上的提升
+        + pack, unpack, 在Bytestring和Word8的[]间转换
+        + fromChunks, toChunks，在惰性和strict版本间转换Bytestring
+        + Bytestring有Data.List相似函数，比如head, tail, init, null等
+    + Exception
+        + 在pure functinal部分，建议用Maybe、Either来进行异常处理
+        + doesFileExist可以判断文件存在
+        + 在IO部分，用catch来处理异常
+            + 可以用isFullError, isEOFError等谓词来进行异常过滤
+            + 可以用ioeGetFileName从异常中抓取文件信息
+            + 用userError、ioError来重新抛出异常
+10. 函数式地思考来解决问题
+    + 逆波兰求值器，能求值"2 3 * 4 -"
