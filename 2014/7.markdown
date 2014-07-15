@@ -382,6 +382,19 @@
                 + 该方法的缺点是，必须`toBool (FromInt 3)`；而如果要透明的`toBool 3`，其实又需要typeclass了(输入typeclass, 输出带constructor的data type)...总之，这是个思路
     + 一个案例Functor typeclass，它实例化的不是具体类，仍然是参数类，kind是`*->*`
         + Functor可以作用域[]/Maybe/Either等
+    + 对比C++
+        + struct Vector {float x; float y; float z;}   
+            1. data Vector = Vector Float Float Float
+            2. data Vector = Vector { x::Float, y::Float, z::Float}
+        + enum Weekday { Monday, Tuesday};
+            1. data Weeday = Monday | Tuesday
+        + tagged union: struct Variant { int type; union{ int i; float f; char *str; };};
+            1. data Variant = FromInt Int | FromFloat Float | FromStr String
+            + 注意这里用FromInt等constructor ID来代替type tag
+        + polymorphism: struct IShape{}; class Rect: public IShape{}; class Circle: public IShape{};
+            1. data Shape = Rect Float Float Float Float | Circle Float Float Float
+            + 这里同样利用Rect/Circle等constructor ID来代替运行时类型信息
+    + 编译期多态用typeclass(重载，等同于C++的模板); 运行时多态用data，用constructor作为类型信息，用pattern matching进行类型分派；如果实在需要可扩展的多态，那么，用Associative array等做类型映射吧
 9. IO
     + main函数的类型是 IO ()，表示返回空tuple的IO action；getLine是IO String，即返回String的IO action
     + 从main函数出发的IO action构成了一棵树(do关键字可以携带子树, AST)，解释器只会求值树上的语句。换言之，只有从IO action可达的语句才会被force求值，而其他语句则被lazy放过
