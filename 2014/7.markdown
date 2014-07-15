@@ -440,3 +440,118 @@
             + 用userError、ioError来重新抛出异常
 10. 函数式地思考来解决问题
     + 逆波兰求值器，能求值"2 3 * 4 -"
+11. 函数式地思考来解决问题
+    + Algebraic data types和typeclass，分别可以提供runtime polymorphism和compile time polymorphism
+    + 所谓Functor
+        + map/filter/fold可以用在[a]上，极有威力，能不能将这组操作延伸到任意类型呢？即将map/filter/fold作用到`F a`类型上? Functor、Applicative Functor、Monoid(针对mappend操作)、Foldable，就是干这些事的
+        + Functor，就是指可以被应用map操作的类型，即，凡是能被map over的类型，就可以通过实例化(instance)Functor这个typeclass，来实现对fmap的支持
+            + 在C++里，要实现fmap函数对不同类型进行不同操作，其实就是template specialization；在Haskell里，一个函数只能声明成针对约束类型(即参数类型是某typeclass的实例)的操作，如果要进行特化，那么，需要声明一个新的typeclass，将操作声明为typeclass的method，最后，不同类型分别去instance这个typeclass以实现函数的overload(或者说，类型的polymorphism)
+        + Haskell中，用`f <$> obj`来表示将类型为`a->b`的函数f应用到类型为`F a`的对象obj上，返回值的类型为`F b`
+        + 应用在函数上，等价于function composition
+        + Functor laws
+            1. 对一个Functor做fmap id，结果应该等于原Functor
+            2. `fmap (f1 . f2) functor`，结果应该等于`fmap f1 $fmap f2 functor`
+            + 一个简单的Functor laws的反例: Functor类型是`F Int a`，其中Int用来记录fmap被应用的次数，这样，该Functor有了状态，并会随fmap改变，所以破坏了Functor laws
+    + 所谓Applicative
+        + Applicative的目的是，在Functor支持的单参函数的map基础上，支持多参函数对任意类型的应用，比如，将`a->b->c`应用到`F a`和`F b`上返回`F c`。方法是，利用Haskell默认的curring特性，实现`F a->b`应用到`F a`返回`F b`
+        + Applicative的操作符是<*>，常见用法是`(+) <$> Just 2 <*> Just 3`
+        + 利用Applicative，对Maybe/List Functor等应用多参函数，相当于归并多路数据；如果对一组function Functor应用多参函数，会返回新函数，新函数现将参数分流到多路function Functor上，最后再利用多参函数汇总
+        + 对List Applicative应用多参函数，很容易实现list comprehension的效果
+            + 注意list comprehension的枚举list个数是编译期的，利用递归，我们可以做到运行时的枚举个数。比如permutation、combination、queens算法，既可以使用两项的list comprehension，也可以使用两参数的applicative style
+            + 借助ZipList这个newtype，可以在applicative style中进行zipWith操作而非list comprehension
+        + 在不拆包的情况下对容器类型表达式进行<$><*>的编码风格，叫做Applicative style
+        + `liftA2 f a b`等价于`f <$> a <*> b`
+    + 利用Functor、Applicative，很容易对任意类型应用操作，而不需借助模式匹配拆包
+        + 换句话说，对Functor、Applicative应用单参、多参函数，输入、输出在原容器类型空间(即输入输出都在`F a`中的F中)。有没有看到Church numeral时的似曾相识感觉?
+        + 用在Maybe/IO上特别方便！
+    + data vs type vs newtype
+        + data可以创建任意类型(用C++的观点来看，其实就是tagged union，其中constructor就是tag，而后缀的字段部分，是union)
+        + type仅仅是为一个已有类型提供别名，文本级别的，对type system完全透明，即不会在类型系统中引入新类型(用C++的观点来看，就是typedef)
+        + newtype，引入编译期类型，该类型仅存在于类型系统中，运行时完全透明，等价于原类型。目的是，让同一类型能够重载一个typeclass多次，分别提供不同实现；即完全是为了重载引入的机制
+    + 所谓Monoid
+        + Monoid是指针对某项操作满足结合律并且有一个0元的类型
+        + 支持mempty和mappend两个操作，任意类型如果支持两个值的叠加，都可以instance Monoid的实例
+        + 借助Monoid，可以通过foldMap实现fold
+        + 常见的实例包括[a]、Sum a、Product a、Any(描述两个Bool结合的方式)、All、Ordering(a==EQ则返回b，否则返回a，用于字典序比较等)等
+12. 来看看几种Monad
+    + 所谓Monad
+        + Monad本意是为了给表达式中的值附加隐藏属性(计算上下文，ctx)，从而给计算提供额外可能；而不同的计算方式，通过类型来区别，每种类型通过instance一个Monad的实例，从而实现不同的计算方式
+        + 在一个Monad computation序列中(通过>>=和>>连接，或者作为do notation中的语句)，拥有额外运行属性的值，叫做monadic value；特定序列中，monadic value的类型是固定的，在这个上下文中的其他类型都是非Monad类型(尽管在另一个计算中该类型可能作为monadic type)，不会有隐藏属性
+        + 在特定序列中，针对非monadic value类型的操作，用空格、`$`、`.`来连接operator和operand；而针对monadic value的操作，要用<$><*>连接；对monadic value的操作，需要在该Monad类型的instance中定义隐藏属性的结合方式
+        + 可以用return来将非monadic value转为monadic value，用<-来将monadic value转换为非monadic value
+        + 一个`>>=`、`>>`序列的返回类型就是Monad类型；而do notation经过CPS变换后，也就是一个>>=序列，因此，一个do表达式本身也就是一个Monad类型的值
+        + 相比普通的表达式计算，Monad提供了两种额外的能力
+            1. Flow control的能力；因为`>>=`运算符其实是将前一个计算的结果应用到后续计算的continuation上，所以，通过不同类型的Monad实例，就可以提供不同的continuation的操纵方式
+                + 比如，Maybe monad和Either monad(Error monad)，可以根据ctx的状态(即Monad类型的constructor)，判断是否还需要继续后续计算，它允许直接抛弃continuation从而结束后续计算；这实现了异常的控制流
+                + 比如，List monad，可以将先前计算的所有结果，依次应用到后续计算上，从而提供non-deterministic的能力
+                    + 还可以有其他变化，例如，简单的给每个可能值附加概率属性，只将概率大于0的值传给后续计算...
+            2. 访问隐藏属性的能力
+                + Maybe/Either/List monad的kind都是`*->*`，所以其隐藏属性是无状态的，而如果一个Monad的类型是`*->*->*`的话，那么其隐藏属性还可以持有状态，该状态可以被访问，包括读、写、读写访问
+                    + 严格的说，Maybe/Either/List类型也是有状态的，只不过状态有限，只包括其constructor的枚举值；比如Maybe monad就是通过其constructor的枚举值来决定是否应该继续计算
+                + 隐藏属性的只写能力(Writer monad)
+                    + 该Monad类型至少应该是`F s a`，其中s是状态类型。于是`>>=`的类型就是`F s a -> (a -> F s b) -> F s b`。由于是只写，后续计算的continuation无需读隐藏属性，只需要输出隐藏属性，因此，在Writer monad的`>>=`实现中，只需要决定前导计算结果中的状态s1和continuation的输出中的s2，怎样结合到最终的monadic value中，默认的结合方式是mappend。
+                    + 可以用于log等输出，比如记日志、记录函数调用次数等
+                + 隐藏属性的只读能力(Reader monad)
+                    + 该Monad类型至少应该是`F s a`，其中s是状态类型。由于`>=`的实现中，只能将值类型a传给continuation，没能显示的将状态一并传递，因此，要让continuation中的计算能够访问状态，只能是让continuation返回一个新函数，由该函数来接收隐藏状态作为参数，而该函数体中包含了后续计算的逻辑；由于隐藏状态不会更新，所以该函数的输出可以只是值类型b。因此，continuation的类型声明应该是`a -> s -> b`，而continuation的类型又在`>>=`中声明为`a -> F s b`，因此可以判断Reader monad的类型`F s a`应该是`s -> a`，即Reader monad应该是一个函数，它接收状态s并返回值a
+                    + Reader monad其实只是隐藏了只读的状态，在计算能力上和为函数显示声明一个状态参数没区别，所以一般可以直接多声明一个状态参数来替代Reader monad的使用
+                + 隐藏属性的读写访问能力(State monad)
+                    + 在pure functional的环境中，更新一个状态，是通过输入旧状态并返回新状态来做的，即updateState操作的典型类型是`s -> (s, a)`
+                    + 在ReaderWriter monad中，`>>=`的continuation需要访问状态，基于和Reader monad同样的理由，该continuation接收值类型a后应该返回一个函数，这个新的函数应该接收状态s并进行读写访问，由于状态可能更新，所以该新函数应该返回输出值和新的状态，于是，continuation的类型应该是`a -> s -> (s, b)`，由`>>=`的类型声明可以推断，ReaderWriter monad的类型`F s a`应该是`s -> (s, a)`，即他是一个函数，接收旧状态，输出值和新状态
+                    + 在纯函数环境中，最繁琐的就是用immutable的数据结构来表达mutable的逻辑，因为这将涉及显示的状态更新和传递，而ReaderWriter monad通过将可更新状态类型隐藏起来，将状态的更新和传递动作放到`>>=`中，从而极大的简化了状态操作代码，提高了代码的可读、可维护性
+                        + 这个动作用王垠`wired`、`wireless`的比喻来说，就是，纯函数中状态的更新、传递代码，被作为导线从地上埋到了地下(隐藏到了`>>=`中，也就是do notation的行与行之间)
+                    + ReaderWriter monad可以被用来实现作用域，如this、global等，及其强大
+                        + 用来隐藏随机数发生器
+                        + IO monad可能也可以被实现为State monad
+    + 在Monad的计算序列中(>>=和do notation)，如果pattern matching失败，会调用Monad instance的fail
+    + guard的类型是`(Monad m) => Bool->m`，在为True时返回空tuple的Monad(即`F ()`)，为False时返回fail；一般它被用于控制continuation
+        + 当guard的predicate为False时，在Maybe/Either/Lis monad中，都会返回对应的中断控制流的monadic value
+    + do notation的展开过程(CPS变换)
+        + 将let的赋值号左边的ID和do剩余的语句组成一个函数(类型是`a->F b`，即>>=中的continuation)，以let赋值号右边的实参调用它。使用空格而非>>=调用，因此该行CPS不受>>=调度
+        + 将<-左边的ID和do剩余的语句转换成一个continuation函数，以<-右边的表达式调用它，用>>=来调用。这里会应用monadic type定义的continuation控制，以及隐藏属性的更新、传递
+        + 将`expression`的行(常见的是guard和tell等输出函数)，转换为`expression >>= (\_ -> ...)`。即，尽管continuation不会关心传递的值内容，但传与不传，还是重要的，这决定了continuation是否会被驱动，在Maybe/Either/List等Monad中比较明显。
+    + Monad laws(单子律)
+        + left identity: `(return x) >>= f`应该等价于`f x`。用monadic function来说，即`return <=< f`等价于f
+        + right identity: `m >> return`(这里的m是monadic value)应该等价于`m`。用monadic function来说，即`f <=< return`等价于f
+        + associativity: `(m >>= f) >>= g`应该等价于`m >>= (\x-> f x >>= g)`
+            + 这意味着>>=满足结合律，所以直接使用>>=构造的左结合序列，和使用do notation的右结合序列，是等价的
+    + monadic function composition: `<=<`
+        + f <=< g = (\x -> f x >>= g)
+    + Monad中的flow control、隐藏属性结合点，在`>>=`，或者说在do notation的行与行之间；因此do notation的行也就是属性访问、控制流的最小单元
+13. 再来看看更多Monad
+    + Monad利用>>=和do notation来减轻我们对context的关注，而将精力放在value本身
+    + 利用difference list来确保FP风格的linked list总是从后往前append(因为append每次会拷贝整个a链，因此在连续的append中将a链长度控制k而不是n，避免了算法空间复杂度退化到n^2)
+        + 经测试，在Haskell中效果显著，而在Racket中效果不明显，为嘛？
+    + 一些实用的monadic function
+        + liftM: 相当于fmap，但不依赖于Functor的定义
+        + lifetM2: 相当于liftA2，但不依赖于Applicative的定义
+        + join: 用来减少context层次，减少层次的同时令外层的context和内层结合。用于List就是concat，用于Maybe/Either/Writer/State的时候...
+        + mapM, forM:
+        + filterM:
+            + 一个典型用法, `filterM (\x->[True,False]) [1..3]`，就可以生成集合的所有子集啦
+        + foldM:
+    + 利用Maybe/Either monad进行错误处理. 书中的例子:
+        + 走钢丝
+        + Reverse polish notation中的错误处理，包括read失败、pattern matching失败等
+14. Zipper数据结构
+    + 在纯FP中，对一个数据结构的任何一点的修改，都会生成一个新的结构(比如binary tree的insert会生成O(log n)个新节点)，而根据special locality原理，接下来的修改很可能还在上次修改点的附近，于是有了Zipper手法在FP语言中的应用
+    + Zipper是一个pair，保存了结构的当前子结构，以及遍历信息(用于重建)；利用子结构和遍历信息，你可以继续任意方式的遍历、修改以及重建，这种手法降低了摊还的深访问、修改&重建开销
+    + 考虑binary tree的zipper
+        + 不使用Zipper，k次读开销是O(k * log n)；k次写的时间开销是O(k * log n)，空间开销是O(k * log n)
+        + 使用Zipper，k次相邻位置读的开销是O(log n + k - 1); k次相邻位置写的时间开销是O(log n + k - 1)，空间开销是O(log n + k - 1)
+    + 书中的例子(注意这里的错误处理又用了Maybe monad)
+        + binary tree
+        + list 
+            + 文本编辑器，一个line list，可以定位到某行，删除、添加、修改当前行。如果用IP中的array+index来访问，显然，增删就没有那么高效了
+        + file system tree
+
+#### 15. 杂项
++ Haskell
+    + SPJ的说法：在OO中，设计是画UML图；在Haskell中，设计是写类型签名
+    + 在类型声明中，(->)是一个type constructor，具体来说是函数构造子，它有两个参数，实参类型+返回值类型(返回值可能是另一个函数，即另一个(->)构造子)
+    + (,)、(,,)都是tuple的构造子，是函数
+    + list comprehension，只不过是List monad的语法糖，等价于do notation + guard(用作filtering)
+    + 记住，Monad不过是一个typeclass，monadic value的类型本质上还是Maybe/Either/List/Writer/Reader/State/RWS等
+    + RWS monad
+        + 显然，其中的R意义不大，而WS可以用(W,S)来替代，因此RWS可以用State monad替换。单独提供一个RWS monad可能是出于使用方便的需要
+    + FP中的immutable data structure，由于总是创建新结构而不改变老结构，可以用来做版本控制
++ 注意在FP中，当输入输出都是list的时候，考虑concatMap，即list comprehension
