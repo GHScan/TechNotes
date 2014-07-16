@@ -515,6 +515,8 @@
                     + ReaderWriter monad可以被用来实现作用域，如this、global等，及其强大
                         + 用来隐藏随机数发生器
                         + IO monad可能也可以被实现为State monad
+    + In functional programming, a monad is a structure that represents computations defined as sequences of steps. A type with a monad structure defines what it means to chain operations, or nest functions of that type together. This allows the programmer to build pipelines that process data in steps, in which each action is decorated with additional processing rules provided by the monad.[1] As such, monads have been described as "programmable semicolons"; a semicolon is the operator used to chain together individual statements in many imperative programming languages,[1] thus the expression implies that extra code will be executed between the statements in the pipeline
+    + Many common programming concepts can be described in terms of a monad structure, including side effects such as input/output, variable assignment, exception handling, parsing, nondeterminism, concurrency, and continuations. This allows these concepts to be defined in a purely functional manner, without major extensions to the language's semantics
     + 在Monad的计算序列中(>>=和do notation)，如果pattern matching失败，会调用Monad instance的fail
     + guard的类型是`(Monad m) => Bool->m`，在为True时返回空tuple的Monad(即`F ()`)，为False时返回fail；一般它被用于控制continuation
         + 当guard的predicate为False时，在Maybe/Either/Lis monad中，都会返回对应的中断控制流的monadic value
