@@ -570,3 +570,188 @@
         + 显然，其中的R意义不大，而WS可以用(W,S)来替代，因此RWS可以用State monad替换。单独提供一个RWS monad可能是出于使用方便的需要
     + FP中的immutable data structure，由于总是创建新结构而不改变老结构，可以用来做版本控制
 + 注意在FP中，当输入输出都是list的时候，考虑concatMap，即list comprehension
+
+#### 25. 体系结构和OS
++ CPU
+    + 指令集(instruction set architecture)
+        + ISA只是硬件对软件的接口，其中的寄存器并不一定存在物理上对应的电路，硬件只要保证实现抽象即可
+        + 对于NaN的运算非常慢，因为它作为罕见特例，硬件不做优化; 相反，如果整数/浮点操作的是2^n，哪怕是运行时值，由于硬件优化，都比一般值运算更快
+        + 指令可能被进一步翻译成功能单一的微指令(Micro instruction)，比如在x86这样的RISC
+    + 流水线、超标量和乱序(Pipeline & Super scalar & Out-of-order)
+        + 优化编译器输出的指令序列，在执行的时候可能进一步被硬件乱序
+    + 中断(Interrupt)
+        + 中断的分类
+            + 异常(Fault): 如Float overflow exception、Page fault等。主动
+            + 错误(Abort): 如硬件错误。主动
+            + 陷阱(Trap): 如系统调用，用于进入内核态，获得高权限。主动
+            + IO中断或软中断(Interrupt): 被动，抢占(preempted)，需要中断调度器介入
+        + x86的中断向量表前32个元素保留，用于调试、除0等硬件异常; 高位的中断处理器可能被用于实现系统调用(Trap)，也可能被注册为IO中断处理过程
+        + 中断调度器
+            + 中断处理的过程中可能再次发生中断，是否要将正在处理的中断挂起，取决于两个中断的优先级；如果挂起，当前中断的状态可能会被保存到内核栈，这个过程分为硬件部分和软件部分
+        + 精确中断和非精确中断
+            + 在流水线/超标量机上，发生中断的时刻，有一系列的指令在同时执行，每条指令执行的阶段都不同，甚至靠后的指令更接近执行完毕，因此无法简单的备份PC、挂起线程
+            + 如果硬件能够在中断时刻准确的提供PC，保证大于PC的指令都还没开始执行，而小于PC的指令都已经执行完毕，那这样的中断叫精确中断
+            + 流水线和精确中断是互斥的，为了在超标量机上实现精确中断，需要很高的代价
+            + 为向后兼容8086，x86通过复杂的硬件来实现精确中断，OS的中断调度可以比较简单
+        + BIOS中有默认的中断处理，不过在OS加载过后会被替换
+    + 分支预测(Branch prediction)
+        + 流水线机中，预测失败(predict miss)开销很大，比如x86中是20个cycles
+        + 一般可预测的是逻辑，可以有90+%的hit rate，而数据驱动的算法难以预测，只能有50%的hit rate
+        + 静态分支预测
+            + 比如，backward taken, forward not taken，能够对循环提供高于50%的命中率
+        + 动态分支预测
+            + 针对每个分支点，输入PC，然后根据branch history buffer，提供TRUE/FALSE的prediction，甚至直接预测目标(target)
+            + BPB(Branch prediction buffer): 能够对conditional jmp提供预测
+            + BTB(Branch target buffer): 除了BPB的能力外，还能预测indirect jmp/call等的目标
+                + Core i7有两个BTB
+    + 高速缓存(Cache)
+        + 一个现代CPU典型的参数是32K L1，256K L2，8M L3; 64字节的cache line; L1、L2是每个CPU核心独占，而L3是shared
+            + 访问寄存器需要0.5~2 cycles, 而访问L1也只需要1~5 cycles
+            + 访问主存需要50+ cycles
+            + 访问SSD需要100us
+            + 访问磁盘需要10ms
+        + 类似哈佛结构(Harvard architecture)，将指令和数据分开存储，所以有i-cache和d-cache
+            + 在虚拟地址翻译部分，也分为i-TLB和d-TLB
+        + 和page fault不同，cache miss后的cache line调度完全硬件负责，即cache对软件透明
+            + 出于该原因，能够在OS中查看page fault次数，而cache miss看不到；除非硬件提供接口给OS?
+        + 常见的cache miss类型
+            + cold miss: 第一次执行一组指令或者访问一组数据时
+                + 所以benchmark时应该先执行一次函数来预热，warm up the cache
+            + capacity miss: working set相对某级cache太大，导致每次访问都需要换出
+            + conflict miss: 连续的内存访问，地址被映射到相同的cache set上，导致必须换出
+                + 比如特殊size的matrix transpose
+    + Unaligned memory access
+        + 一般从存储器读写n个字节时(n可能是2^m)，要求地址按n对齐，否则可能报硬件错误；部分CPU能够自动修复该硬件错误，但会比aligned access更慢
+        + x86会自动修复错误，部分早期的arm会直接报错
+        + 小心类型不安全的代码导致的对齐错误！
+    + Byte order
+        + 当将多个字节的数字保存在存储器中时，需要涉及字节序，高位保存到低地址的叫little endian, 否则叫big endian
+        + x86是little endian，而某些服务器处理器是big endian; 还有的CPU可以配置成低端或者高端
+        + 相关场合
+            + machine code中的立即数等，因为超过1字节，所以有字节序的考虑
+            + 通过网络协议传递数字，如TCP协议中的端口号
+            + 存档文件中的数字
+        + 小心类型补全的代码导致的字节序错误！
+    + 用户态线程和内核态线程
+    + 调度分类
+        + 批处理作业(Batch jobs)
+        + 交互任务的调度(Interactive)
+        + 实时调度
+    + Linux的调度
+        + 进程/线程结构
+            + 进程是资源容器
+            + 管理CPU的状态
+            + 管理存储器的状态
+            + 管理IO的状态
+            + clone方法
+        + 等待事件的Task
+        + 等待CPU的Task
++ 虚拟存储器(Virtual memory)
+    + 分段
+    + 分页和MMU
+        + TLB
+        + 页表
+            + Page entry table -> Page entry
+        + 三级页表
+            + Page directory table-> Page entry table -> Page entry
+        + 页表基址寄存器(Page table base register)
+        + 缺页错误
+    + Linux的虚拟地址空间管理
+    + 后备存储
+        + 静态交换区
+        + 动态后备存储
+        + 分页分区(Paging partition)和交换文件(Swap file)
+        + Linux的策略: Write back
+            + sync, fsync
+            + pdflush进程，30秒flush
+                + 影响脏物理页
+                + 影响VFS中的Block cache(缓存最近访问的块)
+                + 影响磁盘驱动器内部的缓冲(缓存预读的块)
+        + Windows的策略:Write through
+    + Linux的COW和Fork
+    + x86的保护模式
+        + 实模式
+        + 保护模式
++ 物理存储器(Physical memory)
+    + Linux物理页管理
+        + DMA zone, Normal zone, high zone
+        + Buddy allocator
+            + 管理的最小单位是页
+        + Slab allocator
+            + 对象池
++ IO
+    + 设备的组成
+        + 驱动器(机械部分，可能包括电子电路)
+        + 控制器(可能是主板上的芯片)
+            + 包括状态寄存器、命令寄存器、控制器数据缓冲等
+        + 驱动(软件)
+            + 对特定的设备类型，隐藏具体的控制器细节(包括寄存器数目、类型，命令内容等)，向OS层提供统一的驱动接口
+            + 和中断打交道，可能利用事件来提供阻塞的接口
+    + IO方式
+        + Programable IO
+        + Interrupted IO
+        + DMA IO
+    + 驱动
+        + 高速、小通信量的IO任务
+        + 低速，小通信量的IO任务
+        + 低速，达通信量的IO任务
+    + 设备类型
+        + 时钟
+        + 光盘
+        + 磁盘
+        + 终端
+    + Linux下利用VFS访问IO设备
+        + /dev下的特殊文件的主版本号和次版本号
+        + 字符设备特殊文件
+            + 终端
+            + Socket
+        + 块设备特殊文件
+            + 磁盘
+        + /proc特殊设备
++ 文件系统
+    + 磁盘的布局
+        + 计算机启动和BIOS
+            + POST(Power-on self test)
+        + Boot sector(磁盘设备的第1个扇区, 512字节)
+            + Master boot record
+            + Partition table
+            + Active partition
+        + Partition
+            + Super block
+            + 其他部分
+                + Ext2:
+    + Linux的虚拟文件系统(VFS)
+        + 将不同的文件系统mount到一起
+        + NFS
+            + VFS诞生的初衷就是为支持NFS
+        + 对比mmap映射的几种虚拟存储器的后备缓冲的不同
+            + ELF的文本段、只读数据段
+            + Memory mapped file
+            + Paging Partition/Swap file
+                + 属于Raw block file
+                + 绕过了FS，存储上可能连续，并且通信单位可以任意而不必是FS的块，因此性能可能较高
+        + 利用open系统调用打开文件后的内核对象
+            + file descriptor
+            + file descriptor table
+            + file object
+                + ref count
+                + IO position
+            + vnode
+                + local file
+                + remote file
+                + 指向read/write/open等操作的虚函数表
+    + CD-ROM的FS
+    + FAT-32
+    + Ext2, Ext3
+        + Super block
+        + Dentry
+        + inode
+
+#### 25. 杂项
++ 在C/C++语言中，编译器根据类型提供了方法重载、内存对齐、字节序等适配，如果尝试用union、变参函数、`reinterpret_cast`等来绕过类型系统，需要谨慎又谨慎！
+    + 几乎所有绕过类型系统的尝试，如果`reinterpret_cast`、union，都会伴随一些移植性方面的type safety问题，因此，避免这么做！尽量只写强类型、类型安全的代码！
+    + 如果实在无法避免类型擦除，那请检查
+        + 是否有对齐问题？
+            + 部分CPU上unaligned memory access会触发硬件错误，或者导致低效
+        + 是否有字节序问题？
+        + 是否重载错误的方法？
