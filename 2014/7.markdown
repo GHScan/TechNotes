@@ -1057,3 +1057,264 @@
     1. x86指令bsr
     2. MSVC中的BitScanReverse
     3. GCC中的`__builtin_clz`，语义是，count leading zero
+
+#### 31. 计算机网络——自顶向下方法
++ 概述
+    + 计算机网络的概念已经过时，终端不只是计算机，还包括各种嵌入式设备等。所有终端被称为主机(host)或者端系统(end system)
+    + 端系统通过通信链路(communication link)和分组交换机(packet switch)连接在一起；其中通信链路可以是各种物理媒介，包括同轴电缆、铜线、光纤和无线电频谱；而Internet中最著名的两种分组交换机是路由器(router，网络层分组交换机)和链路层交换机(link-layer switch)
+    + 端系统通过因特网提供商(ISP，Internet service provider)进入Internet
+        + 比如像AOL(美国在线)那样的住宅区ISP、电话公司、公司ISP、大学ISP以及各种公共场所的无线接入ISP
+        + 每个ISP是有多个分组交换机和多段通信链路组成的网络
+        + 每个ISP提供不同的接入服务，如56kbps拨号调制解调器、线缆调制解调器、DSL、无线接入
+        + 低层ISP通过国家的、国际的高层ISP(如AT&T)互联起来。高层ISP是通过光纤链路互相连接的告诉路由器组成
+        + 每个ISP，无论低层还是高层，都是独立管理的，运行IP协议
+    + TCP(Transmission control protocol)和IP(Internet protocol)是Internet中最重要的两个协议
+    + 因特网标准(Internet standard)由因特网工程组(Internet engineering task force, IETF)研发，IETF的标准文档称为请求评论(Request for comment, RFC)
+        + RFC定义了如TCP、IP、HTTP、SMTP等协议
+    + 一个协议定义了两个或多个通信实体之间交换的报文格式和次序，以及在报文传输、接收或其他事件方面所采取的动作
+    + 网络边缘(应用层和运输层)
+        + 端系统
+            + 网络软件是一种分布式应用程序(distributed application)，往往包括客户机程序(client program)和服务器程序(server program)；在P2P应用中，应用程序可能是对等程序，同时起着client和server的作用
+        + 接入网(access network): 将端系统连接到其边缘路由器(edge router)的物理链路
+            + 住宅接入(residential access)
+                + 拨号调制解调器(dial-up modem): 家用调制解调器将PC的数字信号转换成模拟信号并传输，通过模拟电话线(用于打普通电话的电话线)。允许的最高速率是56kbps
+                + 数字用户线(digital subscriber line, DSL): 由电话公司或独立的ISP提供，是一种新的调制解调技术，通过限制用户和ISP调制解调器间的距离，DSL能够提供高得多速率。其传输速率在两个方向上是不对称的，下载更快。欧洲
+                + 混合光纤同轴电缆(hybrid fiber-coaxial cable, HFC)：需要电缆调制解调器(cable modem)，它是共享广播媒体，如果只有少数用户在线，则他们可以获得较高的速度，对比DSL是专用带宽。美国和加拿大
+            + 公司接入(company access)
+                + 公司和大学使用LAN接入，而以太网(Ethernet)是LAN中最流行的技术
+            + 无线接入(wireless access)
+                + wireless LAN: 如wifi
+                + wireless WAN: 如2G、3G、4G
+        + 物理媒体(physical medium)
+            + 导引型媒体(guided media)：电波沿着固体媒体被导引，如双绞铜线、同轴电缆、光纤
+            + 非导引型媒体(unguided media)：电波在空气或外层空间中传播，如陆地无线电信道、卫星无线电信道(同步卫星或低地球轨道卫星)
+    + 网络核心(网络层)
+        + 电路交换(circuit switching): 端系统间的通信路径上，为通信所提供的资源(缓存、链路传输速率)会被预留，能够确保恒定速率向接收方传输数据，应用是电话网络
+            + 两台主机要通信的时候，建立端到端连接(end-to-end connection)，只能够使用链路带宽的1/n
+            + 通过频分多路复用(frequency-division multiplexing, FDM)或者时分多路复用(time-division multiplexing, TDM)实现
+            + 效率较低，因为存在静默期(silent peroid)，此时专用的电路空闲。比如停止讲话，此时电路不能被复用
+        + 分组交换(packet switching): 端系统间的通信路径上，为通信所提供的资源不会被预留，可能导致等待(排队)，典型应用是Internet
+            + 报文(message)被划分为小的分组(packet)后通过分组交换机(packet switch)传送，分组能以链路的最大速率传输
+            + 分组交换机采用存储转发传输(store-and-forward transmission)，分组交换机有一个输出缓冲(output buffer，也叫output queue)，这里可能引入排队时延(queue delay)，一个新的分组还可能遇上缓冲区满的情况导致丢包(packet lost)
+            + 相比电路交换中的FDM、TDM，在分组交换中，链路传输能力被逐分组的共享，这样按需共享资源被称为资源的统计多路复用(statistical multiplexing)
+            + 网络层分组交换机(即路由器，router)，以输入分组的目标地址(IP地址)作为参数，查询转发表(forwarding table)，得到输出链路
+        + IPS和因特网主干
+            + 因特网很复杂，由几十个第1层ISP和第2层ISP，以及数以千计的低层ISP组成
+            + 低层ISP：接入ISP，如住宅ISP(提供拨号或者DSL)、公司/学校ISP(使用LAN)
+            + 第1层ISP，也称为因特网主干(Internet backbone)网络，包括Sprint、AT&T、NTT等
+            + 第2层ISP通常有区域性或者国家性覆盖规模
+    + 分组交换网中的时延
+        + 节点间的时延
+            + 节点处理时延(nodal processing delay): 毫秒级或更小。路由器中的校验、forwarding等
+                + LAN中的处理时延可能是几个微妙，而卫星链路路由器的时延可能是几百毫秒
+            + 排队时延(queuing delay): 毫秒/微妙级。在路由器输出缓冲中排队，受网络负载的影响。
+                + 分组长度是L，分组达到速率是a，R是节点传输速率，则：L*a/R是流量强度(traffic intensity)。如果流量强度>1，则需要无限长的路由器缓冲，不可能；在小于1的时候，越接近1，排队越久，时延越大，甚至丢包
+            + 传输时延(transmission delay): 毫秒/微妙级。由报文长度和链路传输速率决定(比如1500字节的包在10M的LAN上传输)
+                + 通过拨号网络传输大的IP报文可能需要几百个毫秒，而通过10Mbps或更高速的LAN传输则时延几乎可以忽略不计
+            + 传播时延(propgation delay): 毫秒级。由节点间距离和物理媒体传输速率决定(比如相距1000KM的节点通过光纤传播)
+                + 对比传输时延和传播时延：想象10辆车的车队经过两个收费站，每辆车经过收费站时停车缴费的时间*10得到传输时延，而1辆车从一个收费站到达下个收费站的时间称为传播时延
+                + 相隔数千米的两个路由器之间传输，和LAN内两个主机间传输，传播时延大不相同
+        + 端到端的时延
+            + 一个重要的概念是往返时延RTT(round-trip time)
+        + 吞吐量取决于瓶颈链路(bottleneck link)的传输速率
+            + 目前Internet的吞吐量限制通常是接入网络
+    + 协议层次
+        + 各层的所有协议被称为协议栈(protocol stack)
+        + 为下层协议添加上层协议头，使得下层协议packet称为payload的这个过程叫做封装(encapsulation)
+        + 五层划分
+            + 应用层(application layer)：传输报文(message)，创建和部署新的协议很容易。包括HTTP、FTP、SMTP、POP3、IMAP、DNS、SSL(包装TCP)、UPnP、SSDP、DHCP、Telnet、SSH
+                + DNS的工作方式：主机的DNS模块向ISP的local DNS server发送UDP的查询请求(这叫递归查询)，本地DNS服务器通过迭代查询连续访问根DNS服务器(root DNS server)、TLD服务器(top-level-domain DNS server)、权威DNS服务器(authoritative DNS server)，最终得到目标IP并缓存。中间DNS服务器的域->IP也可以缓存，这叫DNS caching
+                + DHCP工作方式：(1)新主机接入子网，广播UDP包(DHCP discover)，说请求IP (2)子网内所有DNS服务器应答并提供推荐IP和续约时间 (DHCP offer) (3)主机选择一个DHCP服务器并发送请求(DHCP request) (4)被选中DHCP服务器回应请求 (DHCP ACK)
+                + SSDP(Simple service discovery protocol)服务于UPnP(universal plug and play)，用于实现PC和智能设备的自动对接
+            + 运输层(transport layer): 传输报文段(segment)，提供进程间的逻辑连接(logic connection)，典型的通过端口来标志进程。包括TCP、UDP
+            + 网络层(network layer): 传输数据报(datagram)，提供端系统间的逻辑连接，典型的通过IP地址来标志端系统。包括IP、IPv6、ICMP、ICMPv6、IPsec、RIP、BGP、ARP、RARP
+                + ARP工作方式：(1)主机的ARP模块找不到IP对应的MAC，于是广播，请求子网内相应IP的主机应答 (2)相应主机发送一对一应答，源主机更新本地ARP映射表
+            + 链路层(link layer): 传输帧(frame)，提供节点间的链路传输。可能经过不同的链路，如LAN、WAN、wireless LAN/WAN，这些链路间的最大传输单元(maximum transmission unit, MTU)也可能不同。包括以太网、Wifi、ATM、PPP
+            + 物理层(physical layer): 传输比特。物理介质可以是双绞铜线、单模光纤等
+        + OSI(开放系统互联)的七层模型
+            + 该模型设计时没有考虑Internet，实践中的表示层和会话层一般由应用层的用户自己按需实现
+            + 表示层(presentation layer): 提供数据压缩、加密、描述等信息
+            + 会话层(session layer): 提供连接、同步等功能
+        + router实现网络层~物理层，link-layer switch实现链路层~物理层
+    + 网络攻击
+        + 自我复制(self replication)的恶意软件: 病毒(virus)、蠕虫(worm)
+        + 拒绝服务攻击(denial of service, DoS)
+            + 攻击类型
+                + 弱点攻击：发送特殊包攻击应用或OS漏洞
+                + 带宽泛洪攻击(bandwidth flooding attack): 发送大量分组，导致目标主机拥塞
+                + 连接泛洪攻击(如SYN Flooding attack): 通过SYN包在目标主机中创建大量半开或全开的TCP连接，耗尽目标主机资源
+            + 分布式DoS(distributed DoS, DDoS): 利用僵尸网络(botnet)以DoS攻击目标主机
+        + 分组嗅探器(packet sniffer): 商业机密、隐私泄露
+        + IP哄骗(IP spoofing)：冒充用户
+            + 对策是端点鉴别(end-point authentication)
+        + 中间人攻击(man-in-middle attack)：攻击者能修改或删除报文
++ 应用层
+    + 网络应用程序体系结构
+        + 客户端/服务器体系结构(client-server architecture)
+            + 服务器总是有一个固定的、周知的地址，称为IP地址
+            + 常用主机集群(server farm)创建强大的虚拟服务器。是基础设施密集(infrastructure intensive)的，需要投入巨额费用维护server farm
+        + P2P体系结构(P2P architecture)
+            + 有可能是CS、P2P混合结构
+            + 是自扩展(self scalability)的
+    + 因特网应用对传输层的要求
+        + 电子邮件、文件传输、Web：数据不允许丢失、弹性带宽、时间不敏感。TCP
+        + 音频、视频、交互式游戏：数据允许丢失、实时带宽、时间敏感。UDP或TCP
+    + SSL(secure socket layer): 安全TCP
+        + 用户态代码实现，工作在TCP之上，提供加密、数据完整性、端点鉴别等服务。它将报文加密过后交给TCP
+    + Telnet可以用于调试各种TCP上的应用层协议(wget/curl也有帮助)
+    + HTTP(hyper text transfer protocol)
+        + HTTP等协议有RFC文档(如HTTP的RFC2616)，而很多P2P应用都使用专有协议
+        + 正是WWW的广泛使用才让Internet成为了广域网标准
+        + 流行的Web浏览器包括IE、Firefox等；流行的Web服务器包括Apache、MS IIS(microsft internet information server)，他们提供URL->Web对象的寻址。
+        + HTTP是一个无状态协议(stateless protocol)
+        + HTTP支持持久连接(persistent connection)和非持久连接(non-persistent connection)
+            + 持久连接可以连续发出请求，即流水线
+            + 持久连接大大减少了TCP连接建立开销(即three-way-handshake次数减少了)，每次建立TCP连接的RTT*2的时间成本和分配TCP缓冲的空间成本都很大
+        + HTTP request包括request line + header line + entity body
+            + request line -> method + url + http version, 其中method包括GET、POST、HEAD(类似GET，不过不返回entity body)、PUT、DELETE等
+                + 一个经典的误用例子：删除按钮采用GET，结果爬虫爬网页的时候，导致文件被删掉
+            + header line: 常见Connection、User-agent、Accept-language、Cookie、If-Modified-Since
+                + host字段是用于Web cache(Web proxy)，只有借助它，Web cache才能判断目标(host+url)是否已被缓存
+        + HTTP response包括status line + header line + entity body
+            + status line -> http version + status code + status message
+                + 常见status code: 
+                    + 200，请求成功
+                    + 301，对象已经永久转移
+                    + 400，服务器不能理解请求
+                    + 404，文档不在服务器上
+                    + 505，HTTP版本不支持
+                    + 304，页面没有变化(需要request中带If-Modified-Since头)
+            + header line: 常见Connection、Server、Last-Modified、Content-Length、Content-Type、Set-Cookie
+        + Web cookie
+            + 服务器通过Set-Cookie头在浏览器的特殊Cookie文件中添加一行，(主机, Cookie值)，之后浏览器访问主机的每个请求都会带上这个Cookie值
+                + 例子: (1)没有登录Amazon账号，则第一次登录的时候服务器会分配一个临时账号，将临时账号ID作为Cookie返回，之后所有的浏览、搜索，都和这个临时账号关联 (2) 一旦登录，服务器会返回要登录账号的ID作为Cookie
+            + Cookie的争议在于它可能侵犯用户隐私
+        + Web cache(Web proxy)
+            + 一般由ISP提供
+            + 作用
+                + 端系统连接到Web cache比直接访问公网Web服务器更快
+                + 减少ISP访问WAN的流量
+                    + 典型的Web cache命中率是0.2~0.7；一个例子中，没使用Web cache，由于流量强度接近1，导致queuing delay很大，访问一个页面需要几分钟；使用Web cache后，流量强度降到0.6，排队时延变成了几十毫秒
+                + 多个用户匿名访问同样的URL可以被缓存，即跨用户缓存
+                + 对Web服务器来说，减少了访问量
+    + FTP(file transfer protocol)
+        + FTP使用两个并行的连接，分别是控制连接(control connection)和数据连接(data connection)，由于使用了分离的控制连接，所以称FTP的控制信息是带外的(out-of-band)
+            + 音频、视频传输的RTSP协议的控制信息也是带外的
+            + HTTP的控制信息是带内的(in-band)
+        + FTP的控制链接是持久连接；而数据连接是非持久连接，每个文件使用一个数据连接来传输
+        + FTP的控制链接保存了状态，比如当前目录等
+    + SMTP(simple mail transfer protocol)
+        + 邮件协议的几个参与方，user agent、mail server、SMTP协议。
+        + 用户A将邮件发送到自己的mail server A(通过SMTP或HTTP，后者针对Web邮件服务)，然后由mail server A将邮件转发到mail server B(通过SMTP)，最后user agent B从mail server B上取邮件(通过POP3/IMAP或者HTTP，后者针对Web邮件服务)
+            + 采用这种方式，由自己的服务器代发邮件，那么，只要自己的邮件服务器足够稳定，保证随时在线，即使对方的服务器不稳定、或者通信不畅(比如在GFW背后)，都可以顺利发送邮件
+            + mail server A上有一个message queue，它每30分钟会尝试发送A的邮件，如果几天后都没成功，则放弃并通知A
+        + SMTP很老，当时没有多媒体应用，所以它采用7位的ASCII来编码报文
+            + 对比HTTP，HTTP的entity body可以是任意二进制数据
+        + SMTP报文的控制头：HELO、MAIL FROM、RCPT TO、DATA、QUIT
+            + HELO和QUITE之间可以有多组`MAIL FROM`~`DATA`，即SMTP中，一次TCP连接可以传送多封邮件
+            + DATA中是邮件正文，它可以只是纯文本，也可以像HTTP那样，包含header line和body，header可以有From、To、Subject、Content-Type和Content-Transfer-Encoding
+                + 出于传输二进制附件的需要，可以通过Content-Type和Content-Transfer-Encoding来传输MIME(Multipurpose Internet Mail Exntension)数据。典型Content-Type是image/jpeg，典型的Content-Transfer-Encoding是Base64
+                + SMTP利用MIME来将多媒体内容嵌入正文，而HTTP却通过多个独立的文件来传输多媒体内容
+                + 每个转发邮件的SMTP服务器都会添加`Received : from xxx; 时间`的header line，可以利用这个了解转发路径
+    + POP3(Post office protocol-version 3)
+        + 支持下载并删除、下载并保留两种模式，前者(retr, dele)对多设备用户不方便
+        + 流程
+            1. 特许(authorization)： user, pass
+            2. 事务：list retr, dele
+            3. 更新：quit
+    + IMAP(Inernet mail access protocol)
+        + IMAP比POP3复杂很多，但提供了操作远程文件夹的可能，包括收件箱、已读、已删除以及自定义文件夹
+    + 电子邮件相关的应用程序使用SMTP、POP3、IMAP等协议，而Web邮件应用使用HTTP协议
+    + DNS(Domain name system)
+        + 概念
+            1. 分层的DNS服务器实现的分布式数据库
+            2. 一个允许主机查询分布式数据库的应用层协议
+        + 通常是在UDP的53端口工作
+        + DNS服务器在Unix下是BIND(Berkeley internet name domain)进程
+        + DNS提供的服务
+            + 主机别名(host aliasing)。其中包括一个规范主机名(canonical hostname)，主机别名通常比规范主机名好记
+            + 邮件服务器别名(mail server aliasing)。人们希望在使用邮件地址如`scan@ppscan.qq.com`的时候，能够尽量写得简单，所以这里使用的邮件服务器别名。通过一个别名可以同时关联到两台主机，一台普通主机，一台邮件服务器主机，因此在进行DNS查询的时候，需要指定查询的主机类型，规范主机(CNAME)或者邮件服务器(MX)
+            + 负载均衡(load balance或者load distribution)。一个规范主机名关联一组IP，另外，每次查询的时候，返回的IP顺序会旋转
+            + 总结: (可以用nslookup验证)
+                1. 没有规范主机: hostname -> ip sets
+                2. 有规范主机: hostname -> canonical hostname -> ip sets
+                3. 查询邮件服务器(有规范主机名): hostname -> mail server hostname -> mail server cname -> ip sets
+        + 如果采用单一DNS服务器可能出现的问题
+            + 单点故障(a single point of failure)
+            + 通信容量(traffic volume)
+            + 远距离的集中式数据库(distant centralized database): 比如将DNS服务器放在纽约，则中国的访问会有巨大的propagation delay
+            + 维护(maintenance): 该数据库会很庞大，并且频繁更新
+        + DNS server的层次
+            1. 根DNS服务器(root DNS server): 全球13台，冗余服务器集群
+            2. 顶级域DNS服务器(Top-level-domain, TLD DNS server)：如com、org、net、edu、gov等域名服务器，以及uk、fr、ca、jp、cn等国家域名服务器
+            3. 权威DNS服务器(authoritative DNS server): 公司和大学自己维护自己的权威DNS服务器
+            4. 本地DNS服务器(local DNS server)：本地ISP维护，离用户主机很近，可能在一个局域网内或者不超过几个路由器距离；ISP通过DHCP分配主机IP的同时，也会通知local DNS server的IP
+                + 往往主机对local DNS server进行递归查询(recursive query)，而后者对从上到下的其他各级DNS服务器进行迭代查询(iterative query)
+                + 递归查询是有状态的，而迭代查询是无状态的，显然后者开销更小，因此一般是本地DNS服务器支持递归，而上级DNS服务器支持迭代
+                + 递归查询的结果可能不在本DNS服务器中，因此可以进行DNS caching; 这个cache不仅包括`主机->IP`，还可能包括`com/net/edu->TLD DNS server name`的域项
+        + DNS记录
+            + DNS服务器里存储的entry叫资源记录(Resource record, RR)，格式是(Name, Value, Type, TTL)
+            + RR的解释
+                1. Type=A: Name->Value是主机->IP的映射，比如`abc.foo.com`->`111.111.111.111`
+                2. Type=NS: Name->Value是域->DNS服务器的映射，比如`foo.com`->`dns.foo.com`。往往作为DNS cache被保存在local DNS server中
+                3. Type=CNAME: Name->Value是主机->规范主机的映射，比如`abc.foo.com`->`canonical.foo.com`
+                4. Type=MX: Name->Value是主机->邮件服务器的映射，比如`abc.foo.com`->`mail.foo.com`
+        + DNS报文
+            + request和response报文格式相同
+            + 报文中有标志
+                + 报文是request还是response
+                + response报文：该报文来自权威DNS server
+                + request报文：希望递归查询？ response报文：支持递归查询!
+            + request中的问题是：主机名+类型。类型可以是A或者MX，即要查询主机的IP，或者主机名对应的邮件服务器IP
+            + response中的回答的几种可能
+                1. 简单的主机->IP映射：A
+                2. 主机有规范名：CNAME, A
+                3. 主机有两个规范名，最终的规范名对应3个IP: CNAME, CNAME, A, A, A
+                4. 邮件服务器，并且有规范名和两个IP：MX, CNAME, A, A
+        + 向DNS的分布式数据库中添加记录
+            + 因特网名字和地址分配机构(Internet corporation for assigned names and numbers, ICANN，负责分配域名和IP)向各种注册登录机构(registrar)授权，后者验证域名唯一性，并将域名输入DNS数据库
+            + 注册流程
+                1. 提交权威DNS服务器和后备权威DNS服务器的主机名和IP，比如`dns1.foo.com`、`dns2.foo.com`、`111.111.111.111`、`112.111.111.111`
+                2. 对上面的每个权威DNS服务器，registrar都向TLD DNS服务器中添加两项，分别是NS和A，比如(`foo.com`, `dns1.foo.com`, NS)、(`dns1.foo.com`, `111.111.111.111`, A)
+                3. 确保Web服务器和邮件服务器的RR在注册的权威DNS服务器中，比如(`www.foo.com`, `113.111.111.111`, A)、(`mail.foo.com`, `114.111.111.111`, A)
+            + 假如现在要查询`www.foo.com`，过程(不考虑DNS cache)：请求本地DNS服务器，本地DNS服务器请求根服务器，根服务器请求`com`的TLD服务器，后者返回`dns1.foo.com`的IP，再请求`dns1.foo.com`，返回最终结果`113.111.111.111`
+        + 迄今为止，针对根DNS服务器的DDoS攻击不太有效，因为DNS cache的存在(本地DNS服务器中的NS记录)，实际发往根服务器的查询很少；攻击TLD服务器效果稍好，不过同样由于DNS cache的存在，后果不严重
+    + P2P
+        + P2P文件分发
+            + 将一个文件分发给N个客户端，CS结构的时间开销是O(N)的，而P2P的开销是O(k)的
+            + BitTorrent
+                + 参与分发一个文件的一系列对等方构成一个Torrent，每个对等方加入Torrent的时候，向Tracker注册，并周期性的通知Tracker它还在Torrent中
+                + 关于BitTorrent分发算法的两个问题
+                    1. 应该向邻居请求哪个块? 请求最稀有快(rarest first)，即它邻居手中被拷贝最少的块
+                    2. 应该向哪个邻居请求块？能够提供最快上传速率的邻居
+                        + 为避免P2P中常见的搭便车(free riding)行为，只有高速向邻居传输，邻居才会也高速回馈
+                + BitTorrent只是文件分发协议，以文件构成Torrent，而不提供文件搜索功能
+        + P2P中的信息搜索
+            + 假设这里的索引是`资源->能够提供该资源的IP`
+            1. 集中式索引
+                + 一个统一的server farm来管理索引。历史上Napster是第一家大规模部署P2P文件共享服务的商业公司
+                + 缺点
+                    1. 单点故障、性能瓶颈以及极高的维护费用等。同一般的单点服务一样的缺陷
+                    2. 版权问题。服务器运营商会因为P2P资源的版权而被起诉
+            2. 查询泛洪(query flooding)
+                + 所有的P2P节点(主机)被相互连接，每个节点直接和有限数目的节点相连。当发起一个查询的时候，如果该节点有被索引的资源，则返回自身的IP，否则将查询传递给他的邻居。这样的节点网络叫做覆盖网络(overlay network)
+                + 一般会控制查询传递深度，叫做范围受限查询泛洪(scope limited query flooding)
+                + 一个节点加入overlay network的时候也需要类似的广播来得到邻居
+                + 缺点: 每个查询会引发大流量
+            3. 层次覆盖(hierarchical overlay design)
+                + 有高速因特网连接和高可用性的对等方被指明为超级对等方；每K个普通对等方一组，直接和一个超级对等方相连，将自身资源委托给超级对等方管理；超级对等方彼此相连，构成网络(这里可能需要服务器介入负责管理超级对等方)；普通对等方将查询交给超级对等方，如果后者有资源，则返回，否则向其他超级对等方传递查询
+                + 该方法通过将资源分区域集中管理，将query flooding的大部分开销放在了一个主机内，提供了性能。根据需要，超级对等方头上还可以有2级超级对等方...
+            4. 分布式哈希表(distributed hash table, DHT)
+                + 产生一个全局性哈希表，将所有资源映射成标识符，然后分布式的管理标志符到文件的映射
+                + eMule的核心组件Overnet就应用了DHT；Skype也用DHT来管理用户名到IP的映射
++ 运输层
++ 网络层
++ 链路层
+
+#### 31. 杂项
++ C++模板元编程: 将模板看作编译期的函数式语言
+    + 使用cons，于是模板成为编译期的类似lisp的函数式语言。其中car可以是类型，用于类型操纵；也可以是int，用于编译期计算
++ Hotmail公司的成功归结于它的先发优势(first-mover advantage)和电子邮件的病毒营销(virus marketing)属性，前者为它带来了6个月时间的领先，后者使它快速传播  
+    + virus marketing: 用户会自动为产品做广告。如用Hotmail发出的邮件，收件者都知道了
++ 使用WireShark抓包，可以打印从链路层到应用层协议内容
++ nslookup可以直接指定DNS服务器(root/TLD/authoritative/local)来发起查询
