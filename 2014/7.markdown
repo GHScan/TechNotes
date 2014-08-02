@@ -1122,12 +1122,13 @@
         + 各层的所有协议被称为协议栈(protocol stack)
         + 为下层协议添加上层协议头，使得下层协议packet称为payload的这个过程叫做封装(encapsulation)
         + 五层划分
-            + 应用层(application layer)：传输报文(message)，创建和部署新的协议很容易。包括HTTP、FTP、SMTP、POP3、IMAP、DNS、SSL(包装TCP)、UPnP、SSDP、DHCP、Telnet、SSH
+            + 应用层(application layer)：传输报文(message)，创建和部署新的协议很容易。包括HTTP、FTP、SMTP、POP3、IMAP、DNS、SSL(包装TCP)、UPnP、SSDP、DHCP、Telnet、SSH、RIP
                 + DNS的工作方式：主机的DNS模块向ISP的local DNS server发送UDP的查询请求(这叫递归查询)，本地DNS服务器通过迭代查询连续访问根DNS服务器(root DNS server)、TLD服务器(top-level-domain DNS server)、权威DNS服务器(authoritative DNS server)，最终得到目标IP并缓存。中间DNS服务器的域->IP也可以缓存，这叫DNS caching
                 + DHCP工作方式：(1)新主机接入子网，广播UDP包(DHCP discover)，说请求IP (2)子网内所有DNS服务器应答并提供推荐IP和续约时间 (DHCP offer) (3)主机选择一个DHCP服务器并发送请求(DHCP request) (4)被选中DHCP服务器回应请求 (DHCP ACK)
                 + SSDP(Simple service discovery protocol)服务于UPnP(universal plug and play)，用于实现PC和智能设备的自动对接
+                + RIP作为routing协议，选用UDP作为下层，是出于在网络链路高负载的情况下也能通信，而TCP由于拥塞控制和重传带来了不必要的开销
             + 运输层(transport layer): 传输报文段(segment)，提供进程间的逻辑连接(logic connection)，典型的通过端口来标志进程。包括TCP、UDP
-            + 网络层(network layer): 传输数据报(datagram)，提供端系统间的逻辑连接，典型的通过IP地址来标志端系统。包括IP、IPv6、ICMP、ICMPv6、IPsec、RIP、BGP、ARP、RARP
+            + 网络层(network layer): 传输数据报(datagram)，提供端系统间的逻辑连接，典型的通过IP地址来标志端系统。包括IP、IPv6、ICMP、ICMPv6、IPsec、BGP、ARP、RARP
                 + ARP工作方式：(1)主机的ARP模块找不到IP对应的MAC，于是广播，请求子网内相应IP的主机应答 (2)相应主机发送一对一应答，源主机更新本地ARP映射表
             + 链路层(link layer): 传输帧(frame)，提供节点间的链路传输。可能经过不同的链路，如LAN、WAN、wireless LAN/WAN，这些链路间的最大传输单元(maximum transmission unit, MTU)也可能不同。包括以太网、Wifi、ATM、PPP
             + 物理层(physical layer): 传输比特。物理介质可以是双绞铜线、单模光纤等
@@ -1308,8 +1309,286 @@
                 + 产生一个全局性哈希表，将所有资源映射成标识符，然后分布式的管理标志符到文件的映射
                 + eMule的核心组件Overnet就应用了DHT；Skype也用DHT来管理用户名到IP的映射
 + 运输层
+    + 网络层提供端系统(end system)间的逻辑通信(logic communication)，而运输层在此基础上提供进程间的逻辑通信
+    + 网络层IP协议的服务模型是尽力而为的交付服务(best-effort delivery service)，它不保证segment的交付、顺序、也不保证数据完整性，所以它是不可靠服务(unreliable service)
+    + 将运输层的多路套接字数据归并到网络层中，叫做多路复用(multiplexing)；将网络层数据分派到不同的运输层套接字中叫多路分解(demultiplexing)
+    + TCP对比UDP
+        + TCP: reliable data transfer(运用校验、应答、重发、序号、定时器等技术), flow control, congestion control
+        + UDP: unreliable data transfer。只在网络层之上提供了多路复用和校验服务，使用UDP几乎就是直接在IP层上编程。可靠传输/拥塞控制等服务，需要应用层去按需实现
+        + UDP套接字通过(IP, UDP端口)来标志，而TCP套接字通过(源IP, 源TCP端口，目的IP，目的TCP端口)这样的四元组来标志；所以不同源发给同样的(IP, UDP端口)，会被派发到同一个UDP套接字，而不同源发给同样的(IP，TCP端口)会被分派到不同的目的TCP套接字
+    + UDP(user datagram protocol)
+        + 选UDP的理由
+            + 用户能更好的控制发送的数据和时间。比如网络拥塞的时候，不会有重发和拥塞控制，这对实时通信来说很有意义
+            + 无需建立连接。建立连接需要RTT*2的时间，这个开销对某些应用很成问题，比如DNS
+            + 无连接状态。不需要TCP的缓冲、定时器等设施，每套接字开销更少，资源受限的主机上可以启动更多UDP套接字
+            + 分组头小。TCP头是20字节，UDP是8字节。(IPv4是20字节，IPv6是40字节)
+        + 常见的选用UDP的应用层协议: NFS、SNMP、RIP、DNS以及音频/视频等多媒体应用
+            + RIP选用UDP的理由：需要周期性的更新路由转发表，包括在网络高负载的情况下
+        + 关于UDP上的流媒体的争议：它没有congestion control，所以在拥塞的情况下会导致丢包，甚至挤压TCP回话
+        + reliable data transfer和congestion control可以任意组合的实现在UDP之上的应用层中
+            + 相对的，选TCP的话，就意味着强制性的选择两者
+        + UDP报文
+            + 4个字段：源端口+目的端口+长度+校验和，每个字段2字节
+            + 校验和: 报文段中所有16bit字的和，再取反码；验证的时候，计算所有16bit字的和，和校验码相加应该得-1
+            + 在运输层做校验的原因
+                + 某些网络层(比如IPv6)和链路层可能不做校验
+                + 路由器内存可能引入比特差错
+    + TCP(transmission control protocol)
+        + 可靠数据传输原理(reliable data transfer protocol)
+            + 手段
+                + 校验: 接受方校验数据完整性
+                + 应答: 当接受方校验失败的时候，发送NAK(negative acknowledgement)应答；否则发送ACK(acknowledgement)
+                + 重发: 收到的ACK包校验失败、或者收到NAK包时，重发
+                + 序号(sequence number): 由于重发引入了冗余包(duplicate packet)，所以需要用序号来区分重发的包和新包
+                    + 当接收方收到乱序的包时，可以假设存在丢包，从而通过duplicate ACK进行快速重发(fast retransmit)等
+                + 定时器(timer): 为应对丢包，接收方超过一定时间没收到ACK(可能是发送包丢包，也可能是ACK丢包)，则重发
+                    + 通过忽略NAK和校验失败的ACK包，`应答-重发`流程也可以复用`超时-重发`流程
+                    + 一般使用倒计时定时器(countdown timer)
+                + 流水线(pipeline)和滑动窗口(sliding window)
+                    + 与其采用stop-and-wait方案，等到收到ACK才发下个包，采用发送窗口并发的发送多个包，可大大的提高链路利用率。pipeline其实是提高了(N*L/P)/RTT的比值
+                    + 发送窗口的存在，是为了重发。
+                        + 发送窗口的前半段，是`已发送、待应答`，当然，中间会穿插`已应答`的包；后半段，是`可发送`包，等待填充应用层数据，如果后半段为空，则应用层再次请求填充可能被阻塞或返回失败
+                    + 接收窗口的存在，是为了处理顺序。即每次向应用层提交连续的N个包
+                        + 允许乱序收报，并在得到连续前缀后提交和发送ACK，这叫做累积确认(cumulative acknowledgement)
+                + TTL(time to live)
+                    + 单个包可能因为网络拥塞而在网络层滞留，到达接收端的时候被误以为是序号回绕过后的新包。对策就是给每个包加上TTL(IP头中)，表示允许的路由转发次数，减少到0的话可能通过ICMP通知源
+            + 流水线可靠传输协议
+                + GBN(go back N)
+                + SR(选择重传)
+                    + 为发送窗口中的每个包安装独立的定时器，单个定时器到时重发那个包；发送窗口中的前K个包都应答，则滑动窗口
+                    + 需要考虑序号空间和窗口大小
+                        + 由于接收窗口和发送窗口可能不同步(ACK包丢失)，重发的包可能被误认为是序号回绕过后的新包，所以窗口大小应该小于1/2的序号空间
+        + TCP的特点
+            + 面向连接(connection oriented)，不同于电路交换中的TDM和FDM，TCP的连接只存在于端系统中，在网络层中透明
+            + 通过三次握手(three-way-handshake)建立连接
+                + 前两次是SYN包和SYNACK包(TCP头中的SYN标志=1)，不能有payload
+            + 全双工(full duplex)
+            + 点对点(point to point)
+            + 每次发送一个TCP segment，大小是MSS(maximum segment size)。其中MSS往往等于MTU(maximum transmission unit)，MTU等于端到端路径上最大链路frame
+                + TCP给应用层message的一个MSS大小的片段加上TCP头从而形成一个TCP segment
+                + MTU常见大小是1460/536/512字节
+                + 因为segment大小是协商的MSS，所以TCP头中没有报文大小字段
+            + 包含发送缓冲和接收缓冲
+                + TCP的RFC没有说明接收到乱序包应该丢弃还是怎样，但实践上一般是累积确认(cumulative ACK)
+            + sequence number的空间大小是2^32，单位是字节
+                + 初始sequence number可以随便选，通过建立连接时的SYN包协商；通常出于安全考虑由特殊算法生成，这也能减少IP层中滞留的旧连接包带来的序号冲突
+        + TCP报文
+            + 源端口、目的端口
+            + 校验和
+            + 接收窗口: 用于实时的flow control，通知接收方接收窗口大小
+            + Sequence number(32位)
+            + Ack number(32位): 表示发送方可以接收的下个packet字节偏移
+                + 一个TCP报文中，不但有发送方向的Sequence number，还有接收方向的Ack number，这叫捎带(piggybacked)
+            + flag fields
+                + ACK: 表示Ack number有效
+                + SYN: 三次握手中的SYN包标志
+                + RST: 三次握手中的第2步，接收方发现目标TCP端口无效，则返回RST包
+                + FIN: 断开连接时的四次握手中，断开己方写通道用FIN，接收ACK
+            + 变长的option fields
+                + 握手时协商的MSS、窗口大小
+                + 时间戳
+        + TCP的RTT估计
+            + 过程
+                1. 每隔一段时间选定一个报文统计它的RTT，得到SampleRTT
+                2. 用公式`EstimatedRTT = (1-a)*EstimatedRTT + a*SampleRTT`得到EstimatedRTT，RFC2988建议a=0.125
+                3. 用公式`DevRTT = (1-b)*DevRTT + b*abs(SampleRTT-EstimatedRTT)`得到偏差DevRTT，建议b=0.25
+            + 定时器的超时重传间隔为`TimeoutInterval=EstimatedRTT + 4*DevRTT`
+        + TCP的可靠数据传输
+            + 发送窗口不是packet构成的窗口，而是一个基于字节的循环缓冲
+            + 基本算法
+                + 发送方
+                    + 当应用层要求发送message时，以MSS为单位，从LastByteSent位置分块发送多个TCP segment，如果LastByteSent-LastByteAcked超过send buffer size，则返回失败或阻塞应用层
+                        + 发送segment时，如果当前LastByteSent==LastByteAcked，则要安装定时器
+                    + 超时发生时，重发LastByteAcked位置的包，并重新安装定时器
+                        + 重新安装定时器时，超时时间可设置为上次的2倍，这在一定程度上有congestion control的效果
+                        + 收到ACK过后，TimeoutInterval会再次由EstimatedRTT得到
+                        + 超时也可能意味着丢包，会影响拥塞控制
+                    + 收到Ack时，如果Ack number>LastByteAcked，则更新LastByteAcked并重新安装定时器；这会推进滑动窗口，允许应用层填充更多的message
+                        + 如果Ack number==LastByteAcked，则意味着这是一个duplicate ACK；接收到3个duplicate ACK，则重发LastByteAcked位置的包并重置定时器，这叫快速重传(fast retransmit)
+                        + 3个duplicate ACK可能意味着丢包，会影响拥塞控制
+                + 接收方
+                    + 接收包，如果得到一个连续前缀，则返回最高偏移的ACK，这叫累积确认(cumulative ACK)
+                        + 向应用层提交连续前缀，会使得接收缓冲增大，这个变化通过TCP头反馈，是flow control的一环
+                    + 接收包，如果是一个乱序包，则返回待接收的第1个包的ACK；这样连续接收多个乱序包，会导致发送多个ACK(first)，这是为了实现快速重传
+            + 流量控制(flow control service)
+                + 如果发送方一直发送数据，而接收方应用层一直不读取数据，则接收缓冲可能溢出；流量控制的作用就是在每个ACK报文中通知发送方接收缓冲的大小，当接收缓冲太小时，发送方停止发送
+                + 接收窗口：RcvWindow = RcvBuffer - (LastByteRcvd - LastByteRead)
+                    + 会通过每个ACK的TCP报文头反馈
+                + 流量控制：LastByteSent - LastByteAcked <= RcvWindow
+        + TCP连接管理
+            + 建立连接(三次握手)
+                + 流程
+                    1. 客户端：Seq=client_isn, SYN=1
+                    2. 服务器: Seq=server_isn, Ack=client_isn+1, SYN=1, ACK=1
+                    3. 客户端: Ack=server_isn+1, ACK=1  (如果有负载的话，还有 Seq=client_isn+1)
+                + 这里的client_isn和server_isn是客户端和服务器用特殊算法选择出来的initial sequence number
+                    + 为应对SYN flooding attack，有一种方案叫SYN cookies: 在第2步的时候，服务器不创建任何连接状态，而是通过(源IP、源端口、目的IP、目的端口)来hash得到一个server_isn
+                + 为何不是两次握手？
+                    + 如果是2次握手，意味着服务器一收到请求就建立连接，那么：(1) 这容易收到SYN flooding attack的攻击 (2) 如果网络拥塞，客户端暂时没收到ACK，又重新发起SYN，则新/老两个SYN会导致服务器建立两个连接(甚至多个连接)
+            + 断开连接(四次握手)
+                + 流程
+                    1. 主动断开方: 发出FIN包，收到ACK包
+                        + 这可能发生在shutdown/close调用后，主动方底层发送掉写缓冲过后，发出FIN包
+                        + 被动方发出ACK后，再调用read会返回EOF
+                    2. 被动断开方：发送ACK后，允许一定的操作，然后发送FIN包，收到ACK包
+                        + 对被动方应用层来说，可能是read返回EOF才调用close，发送第3次握手的FIN包的
+                        + 主动方回应第4次握手的ACK后，会进入30秒的TIME_WAIT状态，确保被动方能接受到ACK
+            + 一个TCP连接的生命周期
+                + 客户端：CLOSED -(发送SYN)-> SYN_SENT -(接受SYN&ACK，并返回ACK)-> ESTABLISHED -(发送FIN)-> FIN_WAIT_1 -(接受ACK)-> FIN_WAIT_2 -(接受FIN，返回ACK)-> TIME_WAIT -(等待30秒)-> CLOSED
+                + 服务器：CLOSED -(创建listen套接字)-> LISTEN -(接受SYN，并返回SYN&ACK)-> SYN_RCVD -(收到ACK)-> ESTABLISHED -(接受FIN，发送ACK)-> CLOSE_WAIT -(发送FIN)-> LAST_ACK -(接受ACK)-> CLOSED
+        + 拥塞控制(congestion control)
+            + 拥塞原因
+                + 流量强度(traffic intensity)接近1时，queuing delay会非常大
+                + 发送方的丢包重传会加剧拥塞
+                + 发送方的超时重传会加剧拥塞
+                + 对于多节点路由路径，packet lost会导致上游路由器的链路带宽被浪费
+            + 拥塞控制方法
+                + 运输层控制: 比如TCP的做法
+                + 网络层控制
+                    + 路由器通过特殊包直接反馈给源主机拥塞发生: 比如ICMP可以用于通告拥塞。不过由于TCP运输层拥塞控制的存在，实际ICMP拥塞通告很少用
+                    + 路由器在packet中添加拥塞标志: ATM就是这么做的
+        + TCP拥塞控制
+            + 通过拥塞窗口(congestion window)来进行拥塞控制: LastByteSent - LastByteAcked <= min(RcvWindow, CongWindow)
+            + 算法: 两种状态，以及响应丢包事件
+                + 拥塞避免状态(congestion avoidance): CongWin线性增大，比如，每个RTT增大1 MSS
+                + 慢启动状态(slow start): CongWin初始为1，然后每个RTT后翻倍，直到某个阈值
+                + 事件
+                    + 初始化 => SS状态，直到某阈值，然后进入CA状态
+                    + 快速重发(收到3个duplicate ACK) => CongWin*=1/2，保持在CA状态
+                    + 超时重发 => 进入SS状态，直到CongWin=OldCongWin*1/2，然后进入CA
+                        + 可以看见，超时的惩罚比duplicate ACK更大，这种对快速重发(FR)惩罚较轻的做法叫快速回复(fast recovery)
+            + 其他拥塞控制方法：观测SampleRTT，如果它增大，则减小CongWin
+        + TCP吞吐量: 偶尔丢包的情况下，平均吞吐量大概是`CongWin/RTT`
 + 网络层
+    + 转发和路由
+        + 转发(forwarding): 分组进入路由器，根据转发表(forwarding table)，被转移到目标输出链路上
+            + 查表过程：取出分组IP的子网号(利用子网掩码)，查找该子网号在转发表中的最长匹配(longest prefix matching rule)的位序列
+                + 注意，只有子网号用于路由器间路由；主机号用于子网内的路由器和主机间路由，如果是LAN的话，则不经过路由
+            + 对于链路层的链路交换机(link-layer switch)，查表是以链路地址(MAC)作为输入
+        + 路由(routing): 分组进行端到端传输时选择路径的过程
+            + routing algorithm: 如RIP、BGP，通过选路算法更新路由器的转发表，每1~5分钟更新一次；也可以人工配置路由表项
+    + 网络服务模型
+        + 虚电路(virtual circuit): 网络层的连接服务。如ATM
+        + 数据报网络(datagram network): 网络层的无连接服务。如Internet
+    + 选路算法(routing algorithm)
+        + 给定一组路由器和连接路由器的链路，选路算法要找到一条从源路由器到目的路由器的"好"路径，图论被用于形式化选路问题
+            + 和主机直连的路由器称为默认路由器(default router)或第1跳路由器(first-hop router)，也可以叫做源路由器(source router)，相应的有目标路由器(destination router)
+        + 分类
+            1. 全局/分布式(global/decentralized)
+                + 全局选路算法: 以所有节点的连通性及链路费用作为输入。也叫链路状态(link state)算法
+                + 分布式选路算法: 以迭代的、分布式的方式计算最低费用路径，每个节点仅有与之相连的链路费用知识
+            2. 静态/动态(static/dynamic)
+                + 静态选路算法: 随着时间推移，路由变化非常缓慢，通常由人工干预调整
+                + 动态选路算法: 动态算法周期性运行或者响应拓扑变化、链路费用变化
+            3. 负载敏感/负载迟钝(load sensitive/load insensitive)
+                + 负载敏感算法：链路费用会动态的反映出底层链路拥塞
+                + 负载迟钝算法：当今所有因特网选路算法(RIP、OSPF、BGP)都是负载迟钝的
+    + IPv4报文(20字节的头+变长option)
+        + 源、目的IP：每个4字节
+        + 校验和: 因为可能和不进行校验的链路层协议合作，所以需要校验
+            + 由于TTL每经过一个路由器就会变，所以每个路由器都要校验数据完整性并重新计算校验和
+        + 运输层协议：TCP/UDP等
+        + TTL: 运行经过的路由器跳数，减到0的时候会通过ICMP反馈给源主机
+        + IP协议版本号：IPv4或者IPv6
+        + 服务类型(TOS, Type of service)：由上层来区分IP包payload的类型，比如普通数据包或者实时通信包，路由器管理员有可能区别TOS而提供不同的服务
+        + 数据报长度: 首部+数据的长度。2字节，所以不超过64K，但实际上往往不超过1.5K
+        + IP分片相关字段
+        + 变长的选项
+    + IPv4地址
+        + IP地址是与接口(interface)关联的，而不是主机；主机的每个网络适配器(network adapter)都有独立的IP地址；路由器的每个链路接口也有独立的IP地址
+        + a.b.c.d/k是一个IP地址，其中k表示左边的k位是子网号，即repeat(1,k)是子网掩码(subnet mask)
+        + 多个主机和1个路由器可以构成子网，它们之间的路由通过IP地址中的主机号来决定(如果这里的路由器是NAT路由器的话，这个LAN由链路交换机或者集线器来进行链路寻址); 多个路由器可以构成子网，它们间的路由通过IP地址中的子网号来决定(需要将子网掩码应用到IP地址上)
+        + 曾经使用过A、B、C类的子网分类法，但因为粒度过大(子网掩码长度只能是8、16、24位)，现在该为使用无类别域间路由(classless interdomain routing, CIDR)，子网号可以任意位
+        + 路由聚合(route aggregation)：一个ISP可以管理多个网络地址段，如111.111.111.0/24和111.112.0.0/16，而另一个ISP却管理着111.112.111.0/24，可以发现两个ISP管理的网段并不正交，后者导致前者的111.112.0.0/16内部出现一个空洞；即使多个ISP管理的IP段不正交，出现各种空洞，转发也能正常进行，这得益于转发表的位序列最长匹配
+        + 255.255.255.255是广播地址，以它为目的IP地址将导致子网内每台主机都收到packet
+        + 127.0.0.0/8是本机回环地址(loopback address)，表示主机本身
+            + 常用127.0.0.1
+        + 10.0.0.0/8、192.168.0.0/16都是私有地址，可以用于LAN等
+    + IP地址分配和DHCP(dynamic host configuration protocol)
+        + ISP向ICANN申请地址块，后者负责IP地址和DNS的注册；ICANN会授权地区性因特网注册机构(如ARIN、PIPE)分配地址
+        + ISP可以为主机手工配置静态IP地址，或者通过DHCP协议来自动为加入的主机分配IP地址
+            + 和IP地址一起分配的还有子网掩码、默认网关(default router, 或者叫gateway)、本地DNS服务器地址
+            + 手工绑定的IP地址不能被复用，所以如果要求静态IP地址的话(比如作为服务器主机)，需要支付更昂贵的费用
+        + DHCP是即插即用协议(plug and play protocol, PnPP)，优点是只需要为在线主机分配IP地址，而主机离线(DHCP租约过期)后，可以复用IP地址
+        + DHCP协议的流程
+            1. 加入子网的主机对子网广播UDP包(通过255.255.255.255)，这个包叫DHCP discovery message
+            2. 子网内的所有DHCP服务器都应答DHCP offer message
+                + 该message包括推荐IP地址和IP地址租用时间(IP address least time)等信息，当然也包括子网掩码等其他DHCP协议提供的信息
+            3. 主机选择一个DHCP服务器，发送DHCP request message
+                + 该message会包含之间推荐的配置
+            4. DHCP服务器检查request中的配置可用，然后应答DHCP ACK message
+    + NAT(network address translation)
+        + 由于IPv4地址空间太有限，无法为每一台PC/设备都分配一个IPv4地址，所以通过NAT技术实现一组主机共享一个IP地址，这一组主机上的应用共享了该IP的端口空间
+        + 在ISP看来，接入的是一个主机还是一台NAT路由器，没有区别，ISP都会通过DHCP向它提供IP、子网掩码、本地DNS服务器等
+            + 因此，可以在任意位置将一台主机替换成NAT路由器，从而接入一组新的主机
+        + NAT内部维护了一个NAT转换表(NAT translation table)，它一般惰性的生成映射项`私有IP，端口1->公共IP，端口2`
+            + 也可以手动配置静态NAT规则，这在需要运行服务器向外开放wellkown-port的时候很有用
+        + NAT路由器对内提供一个私有子网，比如192.168.0.0/16，它们构成一个LAN，在这个LAN中NAT路由器的身份是集线器/链路交换器
+        + NAT通过私有DHCP服务为私有子网的每一台主机分配私有IP，NAT路由器本身作为私有子网的网关(gateway，或者说default router)
+        + 考虑NAT子网1的一台主机通过WAN向另一个NAT子网2的主机发送一个UDP包:
+            1. 主机发segment给私有网关(NAT路由器): (源(192.168.0.2,123),目的(174.200.98.23, 80))
+            2. NAT路由器做NAT translate，得到新包，并发送给ISP的路由器：(源(171.221.145.74, 100),目的(174.200.98.23, 80))
+            3. 目标ISP路由器将包交给目标NAT路由器，后者进行NAT translate得到新包，并交给LAN内主机(通过ARP查询私网主机的MAC)：(源(171.221.145.74, 100),目的(192.168.0.3, 4320))
+        + 如果使用一个普通路由器将家里的所有设备接入因特网，则需要向ISP续租多个IP地址，个数必须大于等于设备数，每台设备直接和ISP的DHCP服务器相连；简单的将路由器换成NAT路由器，则没有前面的麻烦，区别是带宽共享
+        + 支持UPnP的NAT路由器，允许应用程序动态的绑定NAT映射
+    + ICMP(Internet control message protocol)
+        + ICMP常用于反馈网络层错误(主机/端口不可达，TTL过期等)，以及实现ping
+        + ICMP报文：类型+编码+IP头+8字节的IP数据
+            + 常见类型：
+                + ping请求
+                + ping应答
+                + 目标不可达：根据编码值的不同，区分网络不可达、主机不可达、协议不可达、端口不可达、网络未知、主机未知
+                + 拥塞控制
+                    + 由于一般TCP在运输层实现拥塞控制，所以ICMP的拥塞控制相对少用
+                + TTL过期
+        + 常见的使用ICMP的应用
+            + ping: 用于探测主机
+                + 一般的OS会在内部运输层实现ping服务器，所以可以用ping命令向各种主机发起请求
+            + traceroute: 用于追踪目标主机的路由路径
+                + 发送一系列的UDP请求，地址为(目标IP, 无效UDP端口)，TTL分别为1~n；对于第i个节点，如果是路由器，则会向源回应ICMP报文，说TTL过期；如果是目标主机，则会回应端口不可达，traceroute程序收到端口不同可达后停止发送UDP包
+            + 考虑IP/port sniffer的实现
+                + IP sniffer: ping命令
+                + TCP port sniffer: 确保IP合法的情况下(IP sniffer)，发起TCP连接：收到RST，表示无效的port；收到SYNACK，表示合法port；无回应，可能有防火墙
+                + UDP port sniffer: 确保IP合法的情况下，发送UDP包：收到ICMP报告说port不可达，则无效port；收到其他应答(比如"无效的请求")，则合法port；无回应，可能有防火墙
+    + IPv6
+        + 提供更大的地址空间的同时(4字节地址增大到16字节)，对IPv4做出部分改进
+        + 主要变化
+            + 2^(8*16)的地址空间
+            + 流类型：类似IPv4中的TOS，考虑将来为实时包、付费包提供高优先级的路由服务
+            + 去掉变长的option部分，定长的40字节头能够高效处理
+            + 去掉校验和，数据完整性交给链路层和运输层。在网络层做校验，由于TTL的存在，每级路由器都要更新校验和，很低效
+            + 去掉IP分片的功能。认为每个节点路由器都有权组装、分片IP包的话，太低效。去掉过后，路由器发现包太大，则直接通过ICMPv6通知源"分组太大"
+        + 报文(IPv6头是定长的40字节)
+            + 源/目的IP地址：16+16=32字节
+                + 除单播、多播地址外，还提供任意地址(anycast address)，可将报文交付给一组主机中任意一个(比如路由器可能自动选择最近的一个)
+            + 下一个首部: options或者运输层协议
+            + TTL
+            + IP版本
+            + 流类型
+            + 报文长度
+    + IPv4向IPv6迁移
+        + IPv4部署量太大，不能简单的使用早期升级协议那种、在固定时间通知所有主机更新内核的做法
+        + 显然支持IPv6的节点是可以向后兼容IPv4的
+        + 如果两边端系统有任何一个是IPv4，则采用IPv4，否则采用IPv6。对于IPv6路径上的IPv4路由器节点，考虑如下方案:
+            1. 双栈(dual stack): IPv6节点->IPv4节点，将IPv6 datagram转换成IPv4 datagram，这将导致IPv6报文中新添加的字段丢失；IPv4节点->IPv6节点，也做包换转换，IPv6报文的新字段随意填充
+                + 缺点：源IPv6报文的新字段数据丢失
+            2. 隧道(tunnel): 在IPv6 datagram经过IPv4节点时，创建新的IPv4 datagram，将原来的IPv6 datagram作为IPv4报文的payload
+    + 应用层的新协议部署很简单，就像给房子刷新颜色的漆，剩下的就是等邻居跟风；网络层新协议的部署很困难，它不止要求使用协议的端系统更新内核，还要求更新所有ISP路由器的协议栈，就像给房子换地基，很困难
+    + IPsec提供安全的网络层IP协议，被于VPN
+        + 它将运输层报文加密后传递给IP层(很像SSL将应用层message加密后传递给TCP socket的做法)
 + 链路层
+    + 链路层有两种截然不同的信道
+        1. 广播信道: 许多主机被连接到相同的通信信道，需要媒体访问协议来协调传输和避免碰撞
+            + 如LAN、wireless LAN、卫星网、HFC
+        2. 点对点信道:
+            + 如路由器之间的链路、拨号调制解调器与ISP路由器间的链路
+    + 网络层datagram在链路路径上传输时，经过的链路可能有不同的协议，比如PPP、LAN、WAN；他们的MTU不同，提供的服务也可能不同，比如wireless LAN提供的是可靠交付，而以太网LAN是不可靠
+    + 链路层主体一般在网络适配器(network adapter)上实现，尤其是网络控制器(network controler)
+        + 网络控制器一般是主板上的电路，比如LOM(LAN-on-motherboard)
+    + 作为分组交换机(packet switch)，路由器在网络层，链路交换机在链路层
+        + 还有更简单的链路交换机如集线器(hub)，它简单的将数据广播到接入的每个接口；交换机比集线器更高级，支持过滤、碰撞管理等
+    + ARP(address resolution protocol)和RARP(reverse address resolution protocol)
+        + 每个节点的ARP模块的RAM中，都有一个ARP表(ARP table, 管理IP->MAC的映射)，如果一个IP在其中找不到映射项(MAC)，该节点会向子网广播ARP请求，IP匹配的主机会发起一对一的应答，告知MAC，于是节点在ARP table中缓存该结果
 
 #### 31. 杂项
 + C++模板元编程: 将模板看作编译期的函数式语言
@@ -1318,3 +1597,14 @@
     + virus marketing: 用户会自动为产品做广告。如用Hotmail发出的邮件，收件者都知道了
 + 使用WireShark抓包，可以打印从链路层到应用层协议内容
 + nslookup可以直接指定DNS服务器(root/TLD/authoritative/local)来发起查询
++ 美国东西部的光速RTT大概是30ms
++ Internet发明之初，是单一的TCP/IP协议，后来才分成两个协议。它比以太网、PC、工作站、Web等都更早。发明者在2004年得到图灵奖
++ Linux下的nmap可以用来扫描TCP/UD端口、检查系统版本等
++ CDN(content distribution network)，内容分发网络
+    + 原理是，对于通过主机名来发起的网络请求，CDN修改DNS解析规则，将请求引导到距主机最近的cache服务器(比如，如果是Web请求，这里可以是Web cache)，后者直接返回cache内容或请求真正的服务器后更新cache。该方案通过减小propagation delay来减小RTT，同时还实现了load balance，内容服务器却几乎可以不改动
+        + 几乎就是DNS+Web cache的特殊用法
+    + 步骤:
+        1. 根据主机名返回一个新的规范主机名(CNAME的RR)，该规范主机名在CDN提供商的域下。这一步可以通过修改authoritative DNS server完成
+        2. 以规范主机名请求CDN提供商的DNS服务器，后者会根据客户端IP返回就近的cache服务器IP地址(DNS RR是A)
+            + 显然CDN提供商的权威DNS服务器有特殊算法在后面，根据客户端IP来选择cache服务器
+        3. 以cache服务器IP作为请求目标，后者会读取cache或请求真正的内容服务器
