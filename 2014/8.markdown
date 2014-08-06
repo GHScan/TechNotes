@@ -1,0 +1,282 @@
+#### 6. C++ Primer
++ `static_cast`：well-behaved且非casting away const
+    + implicit casting的逆变换: 如果`S->D`可隐式转换(即casting行为明确定义)，则`D->S`可以用`static_cast`
+        + 如`void*->T*`、narrowing cast、`Base*->Derived*`
++ `reinterpret_cast`: 对数据的二进制表示提供另一种解释
+    + 完全无视类型系统，位于C++语言之下、体系结构一层，因此必然是平台相关的，不可移植
++ C++ casting的引入是为了填补C casting的类型漏洞。两者的比较:
+    + C casting在形式上不明显，不易搜索，而新的casting的格式`xxx_cast`非常醒目
+    + C++ casting分门别类，明确用意
+        + 有时候重构过后，casting的语义发生变化了，C casting无法发现从而引起运行时错误，而C++ casting却能通过静态检查捕获错误、要求更改cast方式
+    + C casting将不可移植的`reinterpret_cast`隐藏起来
++ C++11的lambda简单的声明了一个functor类型，并创建了一个对象
+    + 使用STL算法时，传入lambda比传入函数指针快，因为前者根据类型分派，产生了针对匿名lambda functor类型特化的算法，包含inline；而后者是根据函数地址值分派，公用的同一份代码，有大量函数调用
+    + 普通的lambda的operator()声明是const的，而mutable的lambda是非const的
++ 迭代器类型
+    + `input_iterator`: 只读、单趟算法(一个位置只能读一次)
+        + 因为`input_iterator`和`output_iterator`所属的容器有一个"当前位置"的概念，而移动迭代器将导致当前位置更新；所以，当同一个容器创建多个迭代器时，任何一个迭代器的前进都将影响其他迭代器；所以，两次读/写当前位置的结果是未定义的: 虽然本迭代器没移动，但其他迭代器可能移动，因为"当前位置"的状态共享，所以不保证第2次读取能得到相同结果
+    + `output_iterator`: 只写、单趟算法(只能写一次)
+        + 和`input_iterator`同样的理由，不能重复写
+    + `forward_iterator`: 允许多次读/写同一位置
+    + `bidirectional iterator`: 多次读写同一位置，并且支持双向迭代
+    + `random-access iterator`: O(1)的时间访问任意元素
++ `input_iterator`和`output_iterator`的迭代状态位于容器中，而其他3种迭代器的状态是自包含的
++ `unique_ptr`独占指针，所以支持release动作释放指针所有权，而`shared_ptr`不支持release
++ 需要析构函数的类，肯定要考虑实现拷贝构造、赋值
++ 对象的值语义分类:
+    + 不可移动、不可复制: 禁用右值构造/赋值，禁用左值构造/赋值
+        + 不能作为返回值，不能放入容器，如`scoped_ptr`
+    + 可移动、不可复制: 允许右值构造/赋值
+        + 可作为返回值，可放入C++11容器，如`unique_ptr`
+    + 可移动、可复制：允许左/右值构造/赋值
+        + 可作为返回值、可放入C++98容器，如shared_ptr
++ 任何变量都是左值，即使类型是`int&&`
+    + 因此，要将移动变量，一定要用std::move，哪怕它是个右引用变量
+    + 模板内一定要用std::forward<T>来完美转发
++ 模板函数通过template argument deduction进行实例化时，其implicit casting规则:
+    + 只允许3种casting:
+        1. 数组到指针: T[n]->T*
+        2. 函数到指针: R(A)->R(*)(A)
+        3. 添加const: T&->const T&
+    + 其他隐式转换规则都无效，包括自动拓宽、派生类到基类指针等
+        + 比如std::min(3, 2.0)，由于不会进行整形的自动拓宽，所以会是一个编译错误
+        + 要进行这些转换，显示实例化函数模板
++ 函数重载规则
+    1. 首先，将非模板函数、函数模板1、函数模板2等，按精确匹配->隐式转换后匹配的优先级排序
+    2. 如果优先级最高的备选项有多个，优先选非模板、其次是最特化的模板、然后是更泛化的模板
+        + 可以看做是类型的模式匹配，总是选最特化的(非模板看做模板的特例)
+        + 想要调用对应版本的函数时，一定要确定该版本可见，否则会调用新的模板实例
++ C++11中的`sizeof...`可以取得variadic template的项数
++ C++11中注意用std::forward来转发实参列表
++ 右值引用和完美转发(perfect forwarding)
+    + 函数模板的参数
+        + 基本规则：T&捕获左引用；const T&，捕获任意引用，但不能修改；T&&捕获右引用
+        + 特殊规则: T&&能够捕获左引用，此时T是T2&，利用了引用折叠规则
+            + 引用的引用是C++11引入的，引用折叠规则是：`T&& &&` -> `T&&`，而`T& &&`、`T&& &`、`T& &`都 -> `T&`
+        + 特殊规则：`static_cast`可以将左值转换成右值
+    + std::move
+        + 使用环境：模板/非模板中，任何想被移动的值，包括右引用
+        + 使用方式: 类型推演(template type deduction), std::move(v)
+        + 实现：参数是T&&，其中T可能是T2或T2&&，返回remove_reference<T>&&
+    + std::forwrad
+        + 使用环境: 模板中，参数类型应该是右引用(虽然const T&也能绑定任意值，但不能修改)
+        + 使用方式：显示实例化(explicit instantiate), std::forward<T>(v)
+        + 实现：参数是T&&，其中T可能是T2或T2&&，返回T&&
++ 类模板，实例化过后，并不立即生成所有成员，而是只在每个call site生成被访问的成员
+    + 因为没被访问的成员根本不生成，所以，即使类型T不完全匹配模板的requirements，也能实例化模板：只访问成员的一个子集即可
+    + 显示实例化，将立即生成所有成员
++ 使用显示实例化，用extern template来引用显示实例化，可以控制目标文件的代码规模，不至于每个obj文件都生成各自的模板示例
++ 函数模板只支持特化而不支持部分特化，所以一个惯用技巧是，用函数模板接收参数，然后转发给一个类模板的静态成员，利用类模板来特化、部分特化；这一技巧利用了函数模板的template argument deduction能力，很强大
++ 模板对参数类型应该只有尽量少的要求，比如，用<来代替>和==
++ 模板类的成员没有限制，而类/模板类的模板成员，不能是虚函数
++ 可以单独特化模板类的成员函数
++ 引用作为局部变量的时候(非形参)，可以彻底优化为别名(aliasing)，完全不占用栈空间
++ C++11引入的随机数
+    + 随机引擎：一个callable对象，支持min()/max()/seed()/discard(n)；不同的随机引擎区别是随机质量和速度
+        + 默认随机引擎类型：default_random_engine
+    + 随机分布：一个callable对象，operator()接收随机引擎作为参数，返回不同的分布
+        + 均匀分布：uniform_int_distribution、uniform_real_distribution
+            + 用rand()得到的浮点随机数精度太低
+        + 伯努利分布：bernoulli_distribution
+        + 泊松分布：poisson_distribution
+        + 正态分布：normal_distribution
++ IO stream
+    + stdio的缺陷
+        + 无法扩展。不支持用户自定义类型的输出。即使某些扩展支持register，但由于每种类型都要使用独占字符，所以用途有限
+        + 类型不安全，`...`是类型漏洞，丢失了实参的静态类型
+            + 比较boost::format，使用%连接每个实参，于是能够进行类型检查，数量、类型的不匹配都可以抛出运行时异常
+    + IO stream使用manipulator操作stream的内部状态
+        + 输出方式控制: boolalpha/noboolalpha，dec/hex/oct，showcase/noshowcase(输出8/16进制的前缀0/0x)
+        + 对齐控制
+        + 填充控制
+    + IO stream的缺点
+        + operator<<的虚函数调用开销
+        + manipulator的2次函数调用开销
+        + 格式控制极其繁琐，在可读性方面比stdio差很多，使用operator<<的iostream是一种更差的notation
++ 模板算法的参数，选择函数子/函数指针，是一种效率/灵活性间的取舍，前者是静态绑定，后者是动态绑定
++ C++11的final和override
+    + final用于class，避免该class被继承；object based范式可以使用
+    + final用于函数，避免被子类覆盖
+    + override用于函数，明确指出要覆盖基类；避免了由于失误、重构引起的签名不匹配导致的覆盖失败
++ C++模板可以看做是编译期的函数式语言
+    + 围绕`template<typename car, typename cdr> struct Cons{}`编程，template meta programming于是成了编译期的lisp编程
+    + 以int等integral number作为负载(即Cons的car)，可以进行编译期的计算，如求素数、快排、二叉树等
+    + 以typename作为负载，可以操纵typelist
++ 元编程(meta programming)和泛型编程(generic programming)
+    + 编写程序A，而A会生成最终代码B，该过程叫元编程
+    + 宏、模板、反射/检查都是元编程
+    + 当模板参数(template parameter)是类型时(typename)，叫泛型编程
++ 模板相关的一些术语
+    + class template, function template, member template
+    + template argument, default template argument, template argument deduction, 
+    + instantiate, instantiation, explicit instantiation
+    + template specialization, partial specialization
+    + variadic template, function parameter pack, pack expansion, parameter pack,
+
+#### 6. C++编程规范, 101条规则
++ new object之后接虚函数init的两段构造法，可以用private constructor + 模板函数create<T>来封装
++ 不使用匈牙利记法的理由：多态
+    + 动态多态：`Base *baseObj = derivedObj`，这里的obj应该标记运行时类型还是静态类型呢
+    + 静态多态: generic programming不可能用匈牙利命名；比如C++模板、Haskell
++ SESE(single entry, single exit)已经过时了，异常会造成多出口, 应该采用early exit
+    + 阅读嵌套代码需要在脑中维护一个栈
++ 未使用变量的警告
+    + 参数：直接注释掉，只留下类型
+    + 局部变量：(void)v;
++ 不要用不必要的运算符重载来耍小聪明
++ memory barrier: 指一种特殊的指令，处理器保证在该指令前后的内存操作是顺序的，避免乱序在并反中带来的问题
++ 避免对智能指针的过度使用
+    + 作用域有限的指针用裸指针或者`scoped_ptr`即可
++ C++最强大的静态检查工具是类型系统本身
+    + 动态语言只能依赖于单元测试
++ C++反对使用宏，C++的设计目标之一就是通过模板等设施使宏称为多余的
+    + 宏没有作用域、类型系统、不卫生
+    + 模板在定义时就已经施加了一部分检查
+        + concept使得宏施加更多的检查，类似Haskell中的type constraint
++ 有可能一个大函数无法拆小，因为任何拆分的尝试都需要传递大量的参数/上下文给子函数，这种特例下的大函数是允许的
+    + 但这应该是非常非常罕见的特例
++ 能够通过forward declaration完成的工作就不要include完整的声明
++ 头文件中应该include它所有的依赖
++ 重载常用来避免不必要的隐式转换带来的开销
+    + 如string的operator+等接口
++ 重载||、&&、,将使得这几个运算符变成普通函数，应用applicative order的参数求值规则；而默认情况下他们都是有编译器特殊照顾的特殊求值规则
++ 函数参数的求值顺序不定，确定的只是求值后的压栈规则
+    + 注意避免副作用
+    + 另一条类似的规则: 同一个语句只允许写一个变量一次，多次修改行为是undefined-behavior
++ C++的继承是仅次于friend的第二大依赖，应该尽量避免
++ 非成员函数优于成员函数
+    + "太多的语法糖导致了逗号癌!"
++ 最需要保证正确的是接口，错了可能就再没机会改了(广泛发布了)
++ 派生类通过覆盖重写虚函数的时候，要保证函数的不变式
++ 不要重载隐式转换符
+    + string如果提供了`operator const char*`的话，诸如`s + '0'`、`if (s == "0")`的意外会发生
++ 将数据私有化有利于封装变化和保持不变式，只有单纯的数据聚集的时候用POD的struct
+    + public、protected都有可能破坏不变式
++ 如果一个struct全是getter/setter的话，说明它只是数据聚集(data aggregation)，不需要抽象和不变式，用struct+public field就好
++ C++的private成员不可访问，但可见，所以需要pimpl编译防火墙
++ 基类的析构函数，要么是公开虚函数，要么是保护非虚函数
++ NVI(non-virtual interface)模式：虚函数私有，公开非虚函数作为包装
+    + 和模板模式的用法比较类似
+    + 一个好例子：为避免某个类不覆盖clone，将虚函数声明为`clone_`，以非虚函数clone调用虚函数，虚函数返回后根据typeid和this的typeid比较
++ 要防止切片(slicing)，用clone
++ 在C++98中，实现拷贝赋值的一种办法是，声明它为`T& operator = (T o) { swap(*this, o); return *this; }`，这里将形参声明为T而非引用，其实已经利用了惯用法；同时，该做法还有利于编译器优化右值
++ std::swap的特化其实只是锦上添花，如果实在做不到也无所谓
++ ADL(argument dependent lookup)，也称Koening查找。调用非成员函数时，编译器会先查找参数所在的名空间，最后才查找全局空间
+    + 鉴于这个理由，将类型相关的非成员函数放到类所在的名空间下，用起来接近成员函数
++ 只能在cpp文件的include之后调用using，它只会影响本cpp。如果在头文件中using，会影响所有包含该头文件的文件；如果在cpp的include之前using，会影响头文件
+    + 典型的错误用法：在头文件中`using namespace std;`
++ 头文件中不能有链接实体(entity with linkage)，因此函数要inline或extern，变量要extern；如果语义不变的话，也可以static
+    + 一个例外是模板类的static成员数据
++ 无差别捕获`catch(...)`只应该用在有限的几个地方：(另外，它还将捕获平台异常，而C++异常也是平台异常实现的)
+    + 模块接汇处
+        + 模块的C接口返回前，为了避免ABI不兼容的异常泄露到模块外，在这里将异常转换成错误码
+        + 线程的兜底异常捕获，包括main和threadProc
+        + 模块提供的回调末尾
+    + 析构函数
++ 模块接口的类型越底层，可发布范围就越广(如C接口的模块几乎可以发布给所有语言)；类型越高级，可发布范围越窄(比如用了class过后，只能发布给C++用)
+    + 可以用C作为接口，在内部用C++实现。比如windows api
++ template对参数类型要求有三种方式(表现为concept的requirements)，模板对类型的要求基于哪种形式，应该文档化(STL现在在这方面不行)
+    + 类成员，如`T::compare`(使用了域访问子，scope resolution operator)
+    + 非成员，如`compare(a, b)`，基于ADL
+    + `type_traits`，如`sort_traits::compare`
++ 不要特化函数，改为在当前类名空间下重载(基于ADL，重载的优先级更高)
+    + 当然，整形模板无法重载，只能特化
++ 编写模板的时候，只对类型提出最少要求
+    + 比如sort、set、`priority_queue`只要求类型实现<，而不要求>和==
++ 不要用异常代替断言，虽然`logic_error`就是为此而生的。断言失败的时候，我们一般不希望栈回滚(stack unwinding)
++ 析构不能抛异常
+    + 原因：以下对象因为异常而析构会导致双异常，从而触发terminate
+        + 局部变量
+        + 数组
+        + 静态/全局变量
+    + 都是RAII引起的，所以大部分其他语言功能重叠的设施一样面临此问题
+        + Java面临finally里面的异常，如果简单的接收nested exception，那么会有资源泄露
+        + C#的using的核心设施IDispose，它内部如果再抛出异常，一样面临资源泄露
++ 异常相比错误码的优点
+    + 不可忽略
+    + 隐式传播，不干扰正常业务的控制流；错误码要求手工传播，和业务码混在一起，难以辨识和维护
+    + 在catch块中集中进行错误处理
+    + 构造函数、运算符只能抛异常
++ 捕获、并转发异常的场合
+    + 模块接口处，将模块内的异常导出成错误码
+    + 捕获低层异常添加高层的业务信息后重抛
++ C++的异常规范不靠谱，不要用
+    + 例外是，依赖的模块使用了异常规范，只能继承。如`exception::what`
++ 尽量依赖于STL的检查
+    + 如`&v[n]`优于`&v[0] + n`，后者绕过了STL的range checking
++ 尽量使用STL算法，避免手工编写循环。原因：
+    + 函数名是功能的抽象，而while/for什么也没说明，需要仔细看
+    + 避免了编码上的不必要劣化，如反复调用c.end()等
+    + STL是专家编写，有很多优化知识
+    + 能够利用特化进行memcpy等优化
+    + STL广泛发布。一般而言，发布范围越广，质量、性能都更优
++ STL的函数子应该是纯函数，即其`operator ()`应该是const成员。理由：
+    + 函数子可能在内部有多份拷贝，如果有写操作，将不能累积
+        + 如果函数子类包含的是状态的引用，而非状态本身，可以避免此问题
+    + 函数子被调用的顺序未定义
++ STL算法使用lambda作为参数比函数指针快
++ 类型安全(type-safety)，要求不能访问无类型的内存
++ 对比用type tag进行类型分派(比如用if/else+`dynamic_cast`)和用虚函数来分派
+    + 添加新类型要求修改分派代码，破坏了开放封闭原则
+    + 添加新类型，编译器发现不了，而虚函数会自动分派
+        + 前者至少应该通过switch-default/else中的assert来捕获运行时异常
++ POD，在内存布局上应该同C的struct等价，同时没有构造+big three
++ 由于对齐问题，无法在任意位置写入任意类型对象
+    + 这种unaligned write，势必会用到`reinterpret_cast`，这是不可移植的
++ `reinterpret_cast`位于类型系统之下的体系结构一层，注定是不可移植的
+    + `reinterpret_cast`不受class可见性的影响(C casting同样的问题)，不会在`Base*->Derived*`转换的时候调整偏移
++ union也是弱类型的C引入的，它比`reinterpret_cast`更彻底的擦除了类型，后者至少还会在某些时候失败
++ 可变参数`...`也擦除了类型信息，应该用类型安全的IO，如IO stream
+    + printf等函数在C++中广泛存在，是由于IO stream在可用性、性能等方面设计不够好造成的
+
+#### 6. C++语言的设计与演化
++ 支持局部变量、全局/静态变量的class，而不必每次都new，对C++的性能增益很大
+    + C#有struct
+    + Java依赖escape analysis和minor GC
++ inline的设计初衷，是为了补偿getter/setter等简单访问子引入的抽象代价
++ 只提供一个特性是不够的，还必须以可以负担得起的代价提供它
+    + 还应该有足够的可用性
++ narrowing cast本来是想禁止的，因为它绕过了类型系统且很可能不安全，但为了兼容C...
+    + 作为补偿，提供警告
++ 在没有模板的年代，泛型容器就是通过宏的hack`define; include; undef`来实现的
++ Cfront采用C作为目标码，是因为，C是当时移植性最好的汇编
+
+#### 6. Linux多线程服务器编程
++ 动态库的升级(类似COM级别，要求升级后所有客户不用重新发布)
+    + 虚函数采用运行时绑定，接口签名变了会是一个运行时错误
+    + 非虚函数采用name mangling后symbol lookup，如果接口签名变了，会是一个动态链接错误
++ pimpl手法中的Impl class前置声明应该放在class类而不是外部
++ 如果是target级别的多态，可以简单的将接口的声明和实现分离，然后根据target不同编译、链接不同的cpp。这里不必引入虚函数开销
+    + 例: OS.h，OS.cpp，根据系统不同，分别编译、链接Linux.cpp、Windows.cpp
+    + 例: A.h, A.cpp，如果是unittest的target，则链接`A_mock.o`
++ 在linux下hook系统调用，只需要实现同名函数即可，它会影响dlsym的查找
++ C语言之所以必须先声明后使用，是因为早期编译器内存受限，使用一趟扫描(one-pass)的方式编译
+    + 分离编译的原因之一，也是内存无法装载所有文件的语法树
+
+#### 6. 重构
++ 单元测试(unitest)和功能测试(functional test)，前者是白盒后者是黑盒测试
+    + 像解释器这种程序，也需要程序员编写大量的功能测试
++ 编写未臻完善的测试并运行，好过对完美测试的无尽等待
++ 测试的焦点应该在边界
++ 花合理的时间抓出大多数bug，好过花一生的时间找出所有bug
++ 当测试数量达到一定程度过后，继续增加测试其收益会开始锐减，你反而可能因为工作量太大而放弃
+ 
+#### 6. 杂项
++ C遗留给C++的类型安全漏洞
+    + explicit conversion 
+        + 应该用`xxx_cast`替代
+    + union
+        + 不要使用
+    + 可变参数`...`
+        + 用类型安全的函数，如`iostream::operator<<`或者C++11的variadic template
++ C++自身的类型安全问题
+    + `static_cast`进行`Base*->Derived*`
+        + 至少应该在debug版中用`dynamic_cast`
+    + 用`dynamic_cast`+if/else进行类型分派
+        + 用虚函数
+    + 数组的多态
+        + 应该用base**而不是base*
++ C++ concept很像编译期的duck typing
++ 在C++中使用gtest
++ C++ project
+    + 将C++模板看做编译期的函数式语言，当以integral number作为负载时，能进行编译期计算：包括求素数、快排、二叉树等
