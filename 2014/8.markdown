@@ -280,3 +280,272 @@
 + 在C++中使用gtest
 + C++ project
     + 将C++模板看做编译期的函数式语言，当以integral number作为负载时，能进行编译期计算：包括求素数、快排、二叉树等
+
+#### 7. 常见编译器优化
++ Machine dependent factors
+    + The architecture of the target CPU
+        + RISC vs CISC
+        + Pipelines
+        + Number of functional units
+    + Cache size
+    + Cache/Memory transfer rates
++ Intended use of the generated code
+    + Debugging
+    + General purpose use
+    + Special-purpose use
+    + Embedded systems
++ 窥孔优化（Peephole optimizations）
+    + Usually performed late in the compilation process after machine code has been generated
+    + For instance, a multiplication of a value by 2 might be more efficiently executed by left-shifting the value or by adding the value to itself. (This example is also an instance of strength reduction.)
++ 语言相关优化（Language-dependent optimizations）
+    + the existence of pointers in C and C++ makes it difficult to optimize array accesses (see alias analysis)
++ 循环优化（Loop optimizations）
+    + 归纳变量优化（Induction variable analysis）
+        + if a variable in a loop is a simple linear function of the index variable, such as j := 4*i + 1, it can be updated appropriately each time the loop variable is changed. This is a strength reduction
+        + This information is also useful for bounds-checking elimination and dependence analysis, among other things.
+    + 循环分裂（Loop fission）
+        + loop fission (or loop distribution) is a compiler optimization in which a loop is broken into multiple loops over the same index range with each taking only a part of the original loop's body
+        + This optimization is most efficient in multi-core processors that can split a task into multiple tasks for each processor. It is the opposite to loop fusion, which can also improve performance in other situations.
+        + 例子
+
+                 int i, a[100], b[100];
+                 for (i = 0; i < 100; i++) {
+                   a[i] = 1; 
+                   b[i] = 2;
+                 }
+
+                 int i, a[100], b[100];
+                 for (i = 0; i < 100; i++) {
+                   a[i] = 1;                     
+                 }
+                 for (i = 0; i < 100; i++) {
+                   b[i] = 2;
+                 }
+
+    + 循环交换（Loop interchange）
+        + loop interchange is the process of exchanging the order of two iteration variables used by a nested loop. The variable used in the inner loop switches to the outer loop, and vice versa. It is often done to ensure that the elements of a multi-dimensional array are accessed in the order in which they are present in memory, improving locality of reference.
+        + 例子(列矩阵)
+
+                for i from 0 to 10
+                 for j from 0 to 20
+                    a[i,j] = i + j
+
+                loop interchange would result in:
+
+                for j from 0 to 20
+                 for i from 0 to 10
+                    a[i,j] = i + j
+        
+        + On occasion, such a transformation may create opportunities to further optimize, such as vectorization of the array assignments.
+    + 循环不变式提取（Loop-invariant code motion）
+        + loop-invariant code consists of statements or expressions (in an imperative programming language) which can be moved outside the body of a loop without affecting the semantics of the program
+        + 例子
+
+                for (int i = 0; i < n; i++) {
+                    x = y + z;
+                    a[i] = 6 * i + x * x;
+                }
+
+
+            The calculation x = y + z and x * x can be moved outside the loop since within they are loop invariant---they do not change over the iterations of the loop— so the optimized code will be something like this:
+
+                x = y + z;
+                t1 = x * x;
+                for (int i = 0; i < n; i++) {
+                    a[i] = 6 * i + t1;
+                }
+
+    + 循环展开（Loop unwinding）
+        + is a loop transformation technique that attempts to optimize a program's execution speed at the expense of its binary size (space-time tradeoff). The transformation can be undertaken manually by the programmer or by an optimizing compiler.
+        + 例子
+
+                 int x;
+                 for (x = 0; x < 100; x++)
+                 {
+                     delete(x);
+                 }
+                 int x; 
+                 for (x = 0; x < 100; x+=5)
+                 {
+                     delete(x);
+                     delete(x+1);
+                     delete(x+2);
+                     delete(x+3);
+                     delete(x+4);
+                 }
+
+    + 循环分割（Loop splitting）
+        + is a compiler optimization technique. It attempts to simplify a loop or eliminate dependencies by breaking it into multiple loops which have the same bodies but iterate over different contiguous portions of the index range.
+    + 循环分支移除（Loop unswitching）
+        + Loop unswitching is a compiler optimization. It moves a conditional inside a loop outside of it by duplicating the loop's body, and placing a version of it inside each of the if and else clauses of the conditional. This can improve the parallelization of the loop. Since modern processors can operate fast on vectors this increases the speed.
+        + 例子
+
+                  int i, w, x[1000], y[1000];
+                  for (i = 0; i < 1000; i++) {
+                    x[i] = x[i] + y[i];
+                    if (w)
+                      y[i] = 0;
+                  }
+
+        The conditional inside this loop makes it difficult to safely parallelize this loop. When we unswitch the loop, this becomes:
+
+                  int i, w, x[1000], y[1000];
+                  if (w) {
+                    for (i = 0; i < 1000; i++) {
+                      x[i] = x[i] + y[i];
+                      y[i] = 0;
+                    }
+                  } else {
+                    for (i = 0; i < 1000; i++) {
+                      x[i] = x[i] + y[i];
+                    }
+                  }
+    + 软流水（Software pipelining）
+        + software pipelining is a technique used to optimize loops, in a manner that parallels hardware pipelining. Software pipelining is a type of out-of-order execution, except that the reordering is done by a compiler instead of the processor
+        + 例子
+
+                for (i = 1) to bignumber
+                  A(i)
+                  B(i)
+                  C(i)
+                end
+
+           In this example, let A(i), B(i), C(i), be instructions, each operating on data i, that are dependent on each other. In other words, A(i) must complete before B(i) can start. For example, A could load data from memory into a register, B could perform some arithmetic operation on the data, and C could store the data back into memory .
+           A(1) B(1) C(1) A(2) B(2) C(2) A(3) B(3) C(3) ...
+           A(1) A(2) A(3) B(1) B(2) B(3) C(1) C(2) C(3) ...
+           Software pipelining is often used in combination with loop unrolling.
+
+                for i = 1 to (bignumber - 2) step 3
+                  A(i)
+                  A(i+1)
+                  A(i+2)
+                  B(i)
+                  B(i+1)
+                  B(i+2)
+                  C(i)
+                  C(i+1)
+                  C(i+2)
+                end
+    + 自动向量化（Automatic vectorization）
+        + is a special case of automatic parallelization, where a computer program is converted from a scalar implementation, which processes a single pair of operands at a time, to a vector implementation which processes one operation on multiple pairs of operands at once
+        + 例子
+
+                for (i = 0; i < 1024; i+=4)
+                    for (ii = 0; ii < 4; ii++)
+                       C[i+ii] = A[i+ii]*B[i+ii];
+
+         After loop distribution using temporary arrays
+
+                  for (i = 0; i < 1024; i+=4)
+                  {
+                    for (ii = 0; ii < 4; ii++) tA[ii] = A[i+ii];
+                    for (ii = 0; ii < 4; ii++) tB[ii] = B[i+ii];
+                    for (ii = 0; ii < 4; ii++) tC[ii] = tA[ii]*tB[ii];
+                    for (ii = 0; ii < 4; ii++) C[i+ii] = tC[ii];
+                  }
+
+        After replacing with vector codes
+
+                for (i = 0; i < 1024; i+=4)
+                  {
+                    vA = vec_ld( &A[i] );
+                    vB = vec_ld( &B[i] );
+                    vC = vec_mul( vA, vB );
+                    vec_st( vC, &C[i] );
+                  }
++ 公共子表达式消除（Common subexpression elimination ）
+    + is a compiler optimization that searches for instances of identical expressions (i.e., they all evaluate to the same value), and analyses whether it is worthwhile replacing them with a single variable holding the computed value
+    + 例子
+
+            a = b * c + g;
+            d = b * c * e;
+
+      it may be worth transforming the code to:
+
+            tmp = b * c;
+            a = tmp + g;
+            d = tmp * e;
++ 常量折叠（Constant folding）
+    + is the process of simplifying constant expressions at compile time. Terms in constant expressions are typically simple literals, such as the integer literal 2, but can also be variables whose values are never modified, or variables explicitly marked as constant. Consider the statement
+    + 例子
+
+            i = 320 * 200 * 32;
+            i = 2048000
++ 常量传播（Constant propagation ）
+    + is the process of substituting the values of known constants in expressions at compile time. Such constants include those defined above, as well as intrinsic functions applied to constant values
+    + 例子
+
+            int x = 14;
+            int y = 7 - x / 2;
+            return y * (28 / x + 2);
+
+      Propagating x yields:
+
+            int x = 14;
+            int y = 7 - 14 / 2;
+            return y * (28 / 14 + 2);
+
+      Continuing to propagate yields the following (which would likely be further optimized by dead code elimination of both x and y.)
+
+            int x = 14;
+            int y = 0;
+            return 0;
+
++ SSA-based optimizations
+    + These optimizations are intended to be done after transforming the program into a special form called static single assignment (see SSA form), in which every variable is assigned in only one place
+    + 全局值编码（Global value numbering）
+        + is a compiler optimization based on the SSA intermediate representation. It sometimes helps eliminate redundant code that common subexpression elimination (CSE) does not. At the same time, however, CSE may eliminate code that GVN does not, so both are often found in modern compilers. Global value numbering is distinct from local value numbering in that the value-number mappings hold across basic block boundaries as well, and different algorithms are used to compute the mappings.
+        + 例子
+
+                w := 3
+                x := 3
+                y := x + 4
+                z := w + 4
+
+          a good GVN routine would assign the same value number to w and x, and the same value number to y and z. For instance, the map [{w} \mapsto 1, {x} \mapsto 1, {y} \mapsto 2, {z} \mapsto 2] would constitute an optimal value-number mapping for this block. Using this information, the previous code fragment may be safely transformed into:
+
+                w := 3
+                x := w
+                y := w + 4
+                z := y
++ 寄存器分配（Register allocation）
+    + The most frequently used variables should be kept in processor registers for fastest access
++ 指令选择（Instruction selection）
+    + Most architectures, particularly CISC architectures and those with many addressing modes, offer several different ways of performing a particular operation, using entirely different sequences of instructions. The job of the instruction selector is to do a good job overall of choosing which instructions to implement which operators in the low-level intermediate representation with. For example, on many processors in the 68000 family and on the x86 architecture, complex addressing modes can be used in statements like `lea 25(a1,d5*4), a0`, allowing a single instruction to perform a significant amount of arithmetic with less storage.
+    + 例子
+
+            t1 = a
+            t2 = b
+            t3 = t1 + t2
+            a = t3
+            b = t1
+
+      A good tiling for the x86 architecture is a succinct set of instructions:
+
+            MOV EAX, a
+            XCHG EAX, b
+            ADD a, EAX
++ 指令调度（Instruction scheduling）
+    + Instruction scheduling is an important optimization for modern pipelined processors, which avoids stalls or bubbles in the pipeline by clustering instructions with no dependencies together, while being careful to preserve the original semantics.
+    + Software pipelining是它在循环中的应用? 也就是out-of-order?
++ Rematerialization
+    + Rematerialization recalculates a value instead of loading it from memory, preventing a memory access. This is performed in tandem with register allocation to avoid spills.
++ 函数式语言优化（Functional language optimizations）
+    + 递归消除（Removing recursion）
+        + Recursion is often expensive, as a function call consumes stack space and involves some overhead related to parameter passing and flushing the instruction cache. Tail recursive algorithms can be converted to iteration, which does not have call overhead and uses a constant amount of stack space, through a process called tail recursion elimination or tail call optimization. Some functional languages (e.g., Scheme and Erlang) mandate that tail calls be optimized by a conforming implementation, due to their prevalence in these languages.
++ 边界检查消除（Bounds-checking elimination）
+    + Many languages, for example Java, enforce bounds-checking of all array accesses. This is a severe performance bottleneck on certain applications such as scientific code. Bounds-checking elimination allows the compiler to safely remove bounds-checking in many situations where it can determine that the index must fall within valid bounds, for example if it is a simple loop variable.
+    + Natively compiled languages
+        + One technique for bounds-checking elimination is to use a typed static single assignment form representation and for each array create a new type representing a safe index for that particular array. The first use of a value as an array index results in a runtime type cast (and appropriate check), but subsequently the safe index value can be used without a type cast, without sacrificing correctness or safety.
+    + JIT-compiled languages
+        + Just-in-time compiled languages such as Java often check indexes at runtime before accessing Arrays. Some just-in-time compilers such as HotSpot are able to eliminate some of these checks if they discover that the index is always within the correct range, or if an earlier check would have already thrown an exception
++ 内链展开（Inline expansion or macro expansion）
+    + When some code invokes a procedure, it is possible to directly insert the body of the procedure inside the calling code rather than transferring control to it. This saves the overhead related to procedure calls, as well as providing great opportunity for many different parameter-specific optimizations, but comes at the cost of space; the procedure body is duplicated each time the procedure is called inline. Generally, inlining is useful in performance-critical code that makes a large number of calls to small procedures. A "fewer jumps" optimization. The statements of imperative programming languages are also an example of such an optimization. Although statements could be implemented with function calls they are almost always implemented with code inlining.
++ 过程间优化（Interprocedural optimizations）
+    + Interprocedural optimization works on the entire program, across procedure and file boundaries. It works tightly with intraprocedural counterparts, carried out with the cooperation of a local part and global part. Typical interprocedural optimizations are: procedure inlining, interprocedural dead code elimination, interprocedural constant propagation, and procedure reordering. As usual, the compiler needs to perform interprocedural analysis before its actual optimizations. Interprocedural analyses include alias analysis, array access analysis, and the construction of a call graph.  Interprocedural optimization is common in modern commercial compilers from SGI, Intel, Microsoft, and Sun Microsystems. For a long time the open source GCC was criticized[citation needed] for a lack of powerful interprocedural analysis and optimizations, though this is now improving.[citation needed] Another good open source compiler with full analysis and optimization infrastructure is Open64, which is used by many organizations for research and for commercial purposes.  Due to the extra time and space required by interprocedural analysis, most compilers do not perform it by default. Users must use compiler options explicitly to tell the compiler to enable interprocedural analysis and other expensive optimizations.
++ 逃逸分析（Escape analysis）
+    + Escape analysis determines all the places where a pointer can be stored and whether the lifetime of the pointer can be proven to be restricted only to the current procedure and/or thread.
+    + A compiler can use the results of escape analysis as a basis for optimizations
+        + Converting heap allocations to stack allocations.
+        + Synchronization elision. If an object is found to be accessible from one thread only, operations on the object can be performed without synchronization.
+        + Breaking up objects or scalar replacement. An object may be found to be accessed in ways that do not require the object to exist as a sequential memory structure. This may allow parts (or all) of the object to be stored in CPU registers instead of in memory.
