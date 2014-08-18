@@ -549,3 +549,39 @@
         + Converting heap allocations to stack allocations.
         + Synchronization elision. If an object is found to be accessible from one thread only, operations on the object can be performed without synchronization.
         + Breaking up objects or scalar replacement. An object may be found to be accessed in ways that do not require the object to exist as a sequential memory structure. This may allow parts (or all) of the object to be stored in CPU registers instead of in memory.
+
+#### 19. 杂项
++ Java的checked exception缺点
+    + versioning问题
+        + 一个函数调用栈中的大多数帧，都不关心异常如何处理，他们需要做的仅仅是finally/using；一种看法是catch和finally的比例是1:10；而checked exception要求异常被显示的沿调用链来声明，这已经部分具备错误码的特征了
+        + 接口函数的checked exception声明也是接口的一部分，如果接口的实现变化，导致需要抛出新的异常，除非显示的在实现中将新异常转换成已有异常，否则，新异常的声明将意味着接口变化，要求所有使用接口的客户端代码修改，而实际上，这大部分代码都只是在finally，真正应该修改的只是数量更少的catch代码(位于调用链的更浅层次)
+        + 实际使用中，不关心异常处理方式的finally帧往往直接声明`throw exceptions`，这实际上意味着checked exception不实用
+    + scalability问题
+        + 一个函数可以调用多个子系统的函数，caller需要应对的异常数是callees的异常类型数量之和；调用链的越低层次，需要应对的异常种类越多，这是扩展性问题
+        + 实践上可能通过`throw exceptions`来避免传递所有异常类型，这其实是在宣告checked exception不实用
++ 函数调用的方式
+    + 静态绑定(compile time binding)
+        + 全局函数/非虚函数：
+            
+                mov ecx, eax;
+                call 0x12345;
+
+    + 动态绑定(runtime binding)
+        + 虚函数：
+
+                mov ecx, eax;
+                mov ebx, (eax,0);
+                mov eax, (ebx,12);
+                call eax;
+
+        + 委托(包括指向虚函数的委托)：(可见，委托是比虚函数快的，因为在创建委托的时候有一次预先的vtbl lookup)
+
+                mov ecx, (eax,4);
+                call (eax,0)
+
++ .Net通过Strong names来应对DLL hells问题：引用的每个类都通过`assemble名+版本+locale+密钥+类名`来标识
++ JVM和CLR的设计初衷是不同的：
+    + JVM强调的是平台独立性
+    + CLR在平台独立性的基础上，还强调互操作性(interop)
+        + 语言间的互操作性：CLR支持某些语言特有的feature如指针，它的能力是常见语言的超集
+        + 与已有系统的互操作性：如对DLL、COM、OLE的支持；相反，Java相信世界是纯Java的，要和已有代码交互，需要JNI，后者的使用及其复杂，需要考虑和GC的协作等
