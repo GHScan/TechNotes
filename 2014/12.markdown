@@ -1,0 +1,64 @@
+#### 23. Engineering a compiler. 第1章，编译概观
++ 简介
+    + 编译器是一种工具，它将一种语言翻译到另一种语言，因此，它需要了解源语言的语法和语义(对应前端)，以及目标语言的语法和语义(对应后端)
+    + 对比
+        + 编译器：输入源语言，输出目标语言
+        + 解释器：输入源语言，输出结果(尽管内部可能有编译等动作)
+        + 虚拟机：输入目标语言，输出结果
+    + 基本规则
+        1. 必须保持语义
+        2. 能以可观测的方式改进输入
+    + 由于前端已经有成熟的O(n)算法了，所以编译器的开销主要在优化器和后端上
++ 转换概述
+    + 前端
+        + 词法分析：将字符串转化单词流
+        + 语法分析：判断单词流是否是源语言的句子
+        + 语义分析：类型检查等
+    + 优化器
+        + 数据流分析、相关性分析、转换等
+    + 后端
+        + 指令选择(instruction selection): 将IR转换为目标机操作。此时使用的可能是虚拟寄存器，即数量不限的寄存器符号。一般这里能用动态规划等手段
+        + 寄存器分配(register allocation): 将虚拟寄存器换成物理寄存器。通常是贪心算法等
+        + 指令调度(instruction scheduling): 根据数据依赖重排指令，调整emit时间，从而更高效的利用CPU流水线
+#### 23. Engineering a compiler. 附录B, 数据结构
++ 集合
+    + 适用通用ADT的Set：bst、hashtable、ordered array、ordered list
+        + 对全集U的大小无限制，可以动态适应
+    + 当元素能被表示成整数，且全集U大小固定时(即离线算法，比如编译器领域，前端parse源码过后，IR的规模已知，因此全集U大小固定)
+        + ordered list(linked list): 适合集合容量S绝对数值较小时
+        + bitset: 空间效率最高: 缺点是，因为foreach、intersect、union等操作都是O(U)的，所以，如果S总是远远小于U(稀疏)，则不划算
+        + bitset+ordered list: member是O(1)，insert、delete是O(S)，foreach、intersect、union都是O(S)，效果介于纯ordered list/bitset之间
+        + sparse set: 一个O(U)大的sparse数组存放dense数组的索引，加上一个O(S)大的dense数组存放sparse索引，以及一个标量next
+            + 优点1：无需初始化，或者说，初始化及clear都是O(1)的：next = 0
+            + 优点2：insert、delete是O(1)的，而bitset+ordered list是O(S)的，类似S=10^3、U=10^6的时候，很合适
+            + member的实现：0 <= sparse[i] < next && dense[sparse[i]] == i
+            + insert的实现：sparse[i] = next; dense[next++] = i;
+            + delete的实现：j = dense[next - 1]; dense[sparse[i]] = j; dense[sparse[j]] = i; swap(sparse[i], sparse[j]); --next
+            + foreach的实现：for (i<-dense[0:next]) {...}
++ IR的表示
+    + 图
+        + 树
+            + 所有使用指针的地方，都可以等价的换成数组索引，前提是IR规模已知(恰好编译器大部分算法是离线算法，满足这个条件)
+                + 分配快速（除非指针方案的内存池做得够好）
+                + 内存局部性更好
+                + 可以直接进行块IO，而无需额外的一趟指针序列化
+                + 便于调试
+                + 数组索引相对指针更有利于编译器优化
+            + 任何树都可以表示为二叉树，从而高效的分配、释放节点；当子节点数可变时，尤为有效
+                + 如 struct Node{ T value; LinkedList<Node*> children; }, 其sizeof大致等于sizeof(T) + sizeof(void*)，即使子节点数可变，依然可高效分配
+        + 有向图
+            + 同样可以表达为二叉树
+                + 如 struct Node { T value; LinkedList<Node*> outEdges; }
+            + 可以配置额外的vector<Node*>来加速某些访问
+        + 无向图
+            + 密集图，考虑使用下三角的bit矩阵
+            + 稀疏图，可以使用hashtable<tuple<Node*, Node*>>等
+    + 线性
+        + 数组
+            + 优点是空间局部性好，直接块IO等
+            + 缺点是插入、删除效率低。但IR数组不同于普通数据数组，它能借助detour运算符(类似于jump指令？)，通过类似memory patch的方式引入out-of-line代码，从而高效的增删IR数组
+                + 最后需要在每个pass末尾，或者detour超过一定次数后，重新数组数组，对所有的detour操作进行线性化(inline?)
+        + 链表
+            + 高效的insert/delete
+            + 空间局部性差(用内存池弥补，尤其是IR规模U已知的条件下...)
+            + 指针相比数组，对编译器优化分析更困难
