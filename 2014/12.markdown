@@ -45,14 +45,14 @@
                 + 便于调试
                 + 数组索引相对指针更有利于编译器优化
             + 任何树都可以表示为二叉树，从而高效的分配、释放节点；当子节点数可变时，尤为有效
-                + 如 struct Node{ T value; LinkedList<Node*> children; }, 其sizeof大致等于sizeof(T) + sizeof(void*)，即使子节点数可变，依然可高效分配
+                + 如 `struct Node{ T value; LinkedList<Node*> children; }`, 其sizeof大致等于sizeof(T) + sizeof(void*)，即使子节点数可变，依然可高效分配
         + 有向图
             + 同样可以表达为二叉树
-                + 如 struct Node { T value; LinkedList<Node*> outEdges; }
+                + 如 `struct Node { T value; LinkedList<Node*> outEdges; }`
             + 可以配置额外的vector<Node*>来加速某些访问
         + 无向图
             + 密集图，考虑使用下三角的bit矩阵
-            + 稀疏图，可以使用hashtable<tuple<Node*, Node*>>等
+            + 稀疏图，可以使用`hashtable<tuple<Node*, Node*>>`等
     + 线性
         + 数组
             + 优点是空间局部性好，直接块IO等
@@ -62,3 +62,32 @@
             + 高效的insert/delete
             + 空间局部性差(用内存池弥补，尤其是IR规模U已知的条件下...)
             + 指针相比数组，对编译器优化分析更困难
+    + 哈希表
+        + hash表的关键在于散列函数和碰撞处理
+            + Knuth提出了一个简单的乘法散列函数：`h(key) = tableSize * ((C * key) mod 1)`，一个建议的C值是0.618((sqrt(5) - 1) / 2)
+        + 开放散列法(open hashing)
+            + 缺点及对策:
+                1. 内存分配瓶颈 => free list的内存池
+                2. 链表过长 => 通过rehash使得U/S足够大
+            + 在每次访问后，还可以选择将项往前移1，或者直接提到开头
+        + 开放地址法(open addressing)
+            + 缺点
+                1. 当U/S接近1的时候，性能急剧下降，需要rehash
+            + 两种选择的内存占用
+                1. bucket上面保存指针: 相比open hashing，少了linkedList的next指针，总内存占用可能更少
+                2. bucket上面保存key/value的entry: 虽然少了一层指针的间接层，但由于有大量闲置entry，如果key/value的size明显大于指针，那么，有可能总内存更多；因此，这种嵌入的存储，主要适合小对象
+    + 符号表
+        + 符号表被用于编译期(注意，不是运行时，运行时直接lexical addressing)，虽然可选的方案可以是ordered key/value list、balance bst、hashtable，但因为没有顺序遍历的要求，一般采用hashtable实现
+        + 符号表虽然用hashtable实现，但它的行为更特殊，与其说是insert、member、delete，不如说是`push(key, value)`、`lookup(key)`、`pop()`这组接口，即，它的增删复合栈顺序，因此可以比普通hashtable更优化
+            + 存储方面，由于增删的栈顺序，相比用free list，它可以进一步用栈分配器，而且真正的支持单个项的free
+            + 通过一个栈来保存已分配元素，它能支持O(S)而非O(U)(这里的U指bucket项数)的遍历，而且有更好的局部性(栈顶访问更频繁)，甚至能块IO
+            + rehash的时候，不需要同时保存新旧两个数组，直接旧数组resize后，反向遍历栈然后插入
+            + 这里的栈为了提供稳定的项指针，可能实现为分段栈
+        + scoped symbol table(词法作用域的符号表)
+            + 简单的做法是准备一个stack<hashtable>，这样，insert、delete都很快，但是lookup、update需要沿着栈逐个查找，更慢；实际的符号表是查找、修改更多，而增删很少，所以需要将开销分摊在pushScope、popScope、insert/delete上，进而提供O(1)的lookup/update
+            + open hashing + stack allocator可以提供一个高效的scoped symbol table实现：
+                + pushScope => ++currScope
+                + push => buckets[h(key)] = new List(key, value, currScope, buckets[h(key)])
+                + lookup => list = buckets[h(key)]; while (list != null && list.key != key); list.value
+                + pop => (key, value, scope) = stack.pop(); list = buckets[h(key)]; while (list != null && list.key != key && list.scope != scope); ...
+                + popScope => while (stack.top.scope == currScope) pop(); --currScope
