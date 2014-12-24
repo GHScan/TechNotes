@@ -20,6 +20,7 @@
         + 指令选择(instruction selection): 将IR转换为目标机操作。此时使用的可能是虚拟寄存器，即数量不限的寄存器符号。一般这里能用动态规划等手段
         + 寄存器分配(register allocation): 将虚拟寄存器换成物理寄存器。通常是贪心算法等
         + 指令调度(instruction scheduling): 根据数据依赖重排指令，调整emit时间，从而更高效的利用CPU流水线
+
 #### 23. Engineering a compiler. 附录B, 数据结构
 + 集合
     + 适用通用ADT的Set：bst、hashtable、ordered array、ordered list
@@ -62,32 +63,64 @@
             + 高效的insert/delete
             + 空间局部性差(用内存池弥补，尤其是IR规模U已知的条件下...)
             + 指针相比数组，对编译器优化分析更困难
-    + 哈希表
-        + hash表的关键在于散列函数和碰撞处理
-            + Knuth提出了一个简单的乘法散列函数：`h(key) = tableSize * ((C * key) mod 1)`，一个建议的C值是0.618((sqrt(5) - 1) / 2)
-        + 开放散列法(open hashing)
-            + 缺点及对策:
-                1. 内存分配瓶颈 => free list的内存池
-                2. 链表过长 => 通过rehash使得U/S足够大
-            + 在每次访问后，还可以选择将项往前移1，或者直接提到开头
-        + 开放地址法(open addressing)
-            + 缺点
-                1. 当U/S接近1的时候，性能急剧下降，需要rehash
-            + 两种选择的内存占用
-                1. bucket上面保存指针: 相比open hashing，少了linkedList的next指针，总内存占用可能更少
-                2. bucket上面保存key/value的entry: 虽然少了一层指针的间接层，但由于有大量闲置entry，如果key/value的size明显大于指针，那么，有可能总内存更多；因此，这种嵌入的存储，主要适合小对象
-    + 符号表
-        + 符号表被用于编译期(注意，不是运行时，运行时直接lexical addressing)，虽然可选的方案可以是ordered key/value list、balance bst、hashtable，但因为没有顺序遍历的要求，一般采用hashtable实现
-        + 符号表虽然用hashtable实现，但它的行为更特殊，与其说是insert、member、delete，不如说是`push(key, value)`、`lookup(key)`、`pop()`这组接口，即，它的增删复合栈顺序，因此可以比普通hashtable更优化
-            + 存储方面，由于增删的栈顺序，相比用free list，它可以进一步用栈分配器，而且真正的支持单个项的free
-            + 通过一个栈来保存已分配元素，它能支持O(S)而非O(U)(这里的U指bucket项数)的遍历，而且有更好的局部性(栈顶访问更频繁)，甚至能块IO
-            + rehash的时候，不需要同时保存新旧两个数组，直接旧数组resize后，反向遍历栈然后插入
-            + 这里的栈为了提供稳定的项指针，可能实现为分段栈
-        + scoped symbol table(词法作用域的符号表)
-            + 简单的做法是准备一个stack<hashtable>，这样，insert、delete都很快，但是lookup、update需要沿着栈逐个查找，更慢；实际的符号表是查找、修改更多，而增删很少，所以需要将开销分摊在pushScope、popScope、insert/delete上，进而提供O(1)的lookup/update
-            + open hashing + stack allocator可以提供一个高效的scoped symbol table实现：
-                + pushScope => ++currScope
-                + push => buckets[h(key)] = new List(key, value, currScope, buckets[h(key)])
-                + lookup => list = buckets[h(key)]; while (list != null && list.key != key); list.value
-                + pop => (key, value, scope) = stack.pop(); list = buckets[h(key)]; while (list != null && list.key != key && list.scope != scope); ...
-                + popScope => while (stack.top.scope == currScope) pop(); --currScope
++ 哈希表
+    + hash表的关键在于散列函数和碰撞处理
+        + Knuth提出了一个简单的乘法散列函数：`h(key) = tableSize * ((C * key) mod 1)`，一个建议的C值是0.618((sqrt(5) - 1) / 2)
+    + 开放散列法(open hashing)
+        + 缺点及对策:
+            1. 内存分配瓶颈 => free list的内存池
+            2. 链表过长 => 通过rehash使得U/S足够大
+        + 在每次访问后，还可以选择将项往前移1，或者直接提到开头
+    + 开放地址法(open addressing)
+        + 缺点
+            1. 当U/S接近1的时候，性能急剧下降，需要rehash
+        + 两种选择的内存占用
+            1. bucket上面保存指针: 相比open hashing，少了linkedList的next指针，总内存占用可能更少
+            2. bucket上面保存key/value的entry: 虽然少了一层指针的间接层，但由于有大量闲置entry，如果key/value的size明显大于指针，那么，有可能总内存更多；因此，这种嵌入的存储，主要适合小对象
++ 符号表
+    + 符号表被用于编译期(注意，不是运行时，运行时直接lexical addressing)，虽然可选的方案可以是ordered key/value list、balance bst、hashtable，但因为没有顺序遍历的要求，一般采用hashtable实现
+    + 符号表虽然用hashtable实现，但它的行为更特殊，与其说是insert、member、delete，不如说是`push(key, value)`、`lookup(key)`、`pop()`这组接口，即，它的增删复合栈顺序，因此可以比普通hashtable更优化
+        + 存储方面，由于增删的栈顺序，相比用free list，它可以进一步用栈分配器，而且真正的支持单个项的free
+        + 通过一个栈来保存已分配元素，它能支持O(S)而非O(U)(这里的U指bucket项数)的遍历，而且有更好的局部性(栈顶访问更频繁)，甚至能块IO
+        + rehash的时候，不需要同时保存新旧两个数组，直接旧数组resize后，反向遍历栈然后插入
+        + 这里的栈为了提供稳定的项指针，可能实现为分段栈
+    + scoped symbol table(词法作用域的符号表)
+        + 简单的做法是准备一个stack<hashtable>，这样，insert、delete都很快，但是lookup、update需要沿着栈逐个查找，更慢；实际的符号表是查找、修改更多，而增删很少，所以需要将开销分摊在pushScope、popScope、insert/delete上，进而提供O(1)的lookup/update
+        + open hashing + stack allocator可以提供一个高效的scoped symbol table实现：
+            + pushScope => ++currScope
+            + push => buckets[h(key)] = new List(key, value, currScope, buckets[h(key)])
+            + lookup => list = buckets[h(key)]; while (list != null && list.key != key); list.value
+            + pop => node = stack.pop(); buckets[h(node.key)] = node.next
+            + popScope => while (stack.top.scope == currScope) pop(); --currScope
+
+#### 24. Engineering a compiler. 第2章，词法分析器
+2. 识别单词
+    + 要识别特定单词，可以通过嵌套O(K)层if/else来手工识别
+    + 嵌套if/else的代码可以表示为状态迁移图，也就是所谓的FA(finite automation)
+    + FA的形式化表示：
+        1. 状态集合S(包括错误状态se)
+        2. 输入字符集Z
+        3. 转移函数f= (State,Char)=>State
+        4. 开始状态s0
+        5. 接受状态集合SA
+    + 对于一个输入字符c，它至少会跳转至状态se，进入se后，FA将继续消耗整个输入
+    + 通过将FA对应的识别代码，从嵌套if/else改为while循环，将转移函数f表达为查表，识别器可以支持无限集合
+        + 有限的单词集合，可以用无环FA表达，无限集合，必须用有环FA(对应RE的闭包)
+3. 正则表达式
+    + FA在记法上太复杂，因此引入RE，而RE和FA等价，可以互相转换
+    + RE的形式化定义
+        1. RE描述定义在符号集Z以及空串上的语言
+        2. 三个基本操作
+            1. 连接
+            2. 选择
+            3. 克林闭包(Kleene closure)，记做*
+                + 有限闭包(Finite closure)，记做Ri，如R5
+                + 正闭包(Positive closure)，记做+。R+等价于RR*
+    + (grep的全称`global regular expresion pattern match and print`)
+    + 在定义程序语言的词法单元时，类似特定范围整数这样的模式，可以选择用简单的正则+后期处理，也可以直接用正则枚举。后者虽然会导致FA更复杂，生产过多状态、占用更多内存，但识别器本身仍然是O(n)的
+    + RE的闭包性质，使得RE的各种处理算法仍然可以递归组合
+    + RE的选择操作符，使得它可以描述任何一种有限集合的语言，只需枚举所有串并连接即可
+    + RE的补集操作: 可以简单的将完整的FA的所有接受/非接受状态交换
+    + 程序语言和自然语言在词法方面的一些区别：
+        + 自然语言单词的拼写，和语义无关，而程序语言则尽量通过拼写来反应语法范畴(syntatic category)
+        + 自然语言中，一个单词的词类，是上下文相关的，不同场合中会有不同的解释。程序语言中虽然曾经有这么做的(比如允许class作为identifier，即没有保留关键字的概念)，但新的语言已不再沿用该方案
