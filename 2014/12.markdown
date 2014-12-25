@@ -124,3 +124,54 @@
     + 程序语言和自然语言在词法方面的一些区别：
         + 自然语言单词的拼写，和语义无关，而程序语言则尽量通过拼写来反应语法范畴(syntatic category)
         + 自然语言中，一个单词的词类，是上下文相关的，不同场合中会有不同的解释。程序语言中虽然曾经有这么做的(比如允许class作为identifier，即没有保留关键字的概念)，但新的语言已不再沿用该方案
+4. 从正则表达式到词法分析器
+    + 构造法循环：RE -(Thompson construction)-> NFA -(Subset construction)-> DFA -(Hopcroft算法, minimization)-> 最小化DFA -(Kleene construction)-> RE
+        + 这同时也说明了RE、NFA、DFA等价
+        + 给定一个语言(比如一个单词集合：0~31这32个数字)，可以反推出它的RE
+    + 通过将输入字符集Char映射成CharCategory，可以显著控制输入规模
+    + 之前的RE和FA没有使用空符号，而一旦引入它，用于连接多个FA，将导致出现非确定性转移，从而引入NFA
+    + NFA(Nondeterministic finite automation)相比DFA(Deterministic finite automation)，有空转移符，以及非确定性转移
+        + subset construction中，由一组状态move(c)得到的一组新状态，称为一个NFA配置(configuration of an NFA)，它对应一个DFA状态
+            + 可以考虑用bitset实现
+    + NFA、DFA等价性: 首先，NFA至少是DFA超集；又，任意NFA可以通过subset construction构造成DFA，所以二者等价
+        + DFA状态数可能是NFA状态数的指数倍(2^N(Snfa))，因此，理论上它可能存在空间问题；但用它进行识别，仍然是O(N)的，没有时间问题
+    + Thompson construction有几个性质可以用于简化实现
+        + 每个状态最多只有两个输出边，最多两个输入边
+            + 考虑表示成`struct NFAState{ int id; Tuple<Char, NFAState*> e1, e2;}`
+    + Subset construction
+        + 对每个状态n，可以离线计算e-closure{n}
+            + 考虑表示成bitset
+    + DFA minimization-Hopcroft算法
+        + 是一种不动点应用，停止条件为，不可再split
+        + 最小化之后，可以考虑再次进行CharCategory的压缩：当两个category在DFA table中的列完全相同时
+    + 实现Scanner的时候，需要处理不同token的优先级，比如，new到底算关键字还是identifier
+5. 实现词法分析器
+    + 一些细节优化
+        + 词素(lexeme)可以被hash，从而节省内存
+            + 考虑用Symbol实现；同时也能加速后续symbol table访问的hashcode/equals性能
+        + token本身可以被hash，从而各种单词素token可以共享内存
+        + 特殊词素无需存储为字符串，可节省内存，比如float/int
+            + 参照lex的做法，在token识别成功输出时，直接保存成int/float
+        + 输入流为支持高效的readChar和rollback，可以考虑double buffer的block IO
+    + 表驱动法分析器(table-driven scanners)
+        + 固定的Scanner框架代码 + 语言特定的DFA table
+            + 核心代码：`while (state != Se) { c = nextChar(); lexeme += c; state = table[state][category[c]]; }`
+        + CharCategory的使用有利于减少DFA table的列数，从而有可能使得算法核心内存放入CPU cache
+        + 最长匹配的贪婪策略可能引起的平方开销: 比如，以`a|a*b`匹配`aaaaa...`
+            + 应对策略是，添加`Fail[State,InputPos]`的失败表，回滚的时候写表，而贪婪尝试的时候判断表项为空
+    + 直接编码分析器(direct-coded scanners)
+        + 每个状态用一个label表示，状态间转移，用goto来进行
+        + 在状态中做category-based分派时，如果category对应单字符，那么可以直接用if；如果是连续的多字符，可以用if + range测试；简单的非连续字符，可以用switch；如果是复杂非连续的字符，仍然使用category table
+            + 注意，当category对应的字符分布无规律时，switch可能慢于category table的lookup
+        + 可以在生成各个状态代码时，根据状态特点来特化代码(相当于手工Scanner的部分好处)
+    + 手工编码分析器(hand-coded scanners)
+        + 可以做很多手工的细节优化
+            + int的token，边识别，便进行输出值的累积`value = value * 10 + (c - '0')`
+            + 单词素的token，识别过程中不必累积lexeme
+            + 注释、空格/换行等，都不必累积lexeme
+    + 关键字处理
+        + 提供关键字RE
+            + DFA状态数较多，适合table-driven scanner和direct-coded scanner
+        + 使用identifier的RE，输出时查表判断是否是关键字，是的话输出对应token
+            + DFA状态数较少，适合hand-coded scanner
+            + 缺点是，每个identifier都要追加一次查表的额外开销
