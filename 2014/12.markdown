@@ -175,3 +175,22 @@
         + 使用identifier的RE，输出时查表判断是否是关键字，是的话输出对应token
             + DFA状态数较少，适合hand-coded scanner
             + 缺点是，每个identifier都要追加一次查表的额外开销
+6. 高级主题
+    + 从DFA到RE - Kleene construction
+        + 很像最短路径中的Floyd算法
+    + DFA最小化算法之2 - Brzozowski算法
+        + 利用Subset construction会合并公共前缀的性质
+        + 定义操作
+            + reverse(NFA/DFA)->NFA: 反向所有转移边；开始状态变成结束状态；添加一个新的开始状态，通过e指向原来的所有结束状态
+            + reachable(DFA)->DFA: 去掉不能从开始状态达到的状态
+        + 算法核心：`reachable(subset(reverse(reachable(subset(reverse(n))))))`，即，先去掉公共后缀，再全掉所有公共前缀
+    + 无闭包正则(closure-free regular expression)
+        + 无闭包语言考察的对象，实际上是类似一组单词|起来的语言
+        + 可以通过类似构造Trie的方式构造一个DFA，然后最小化，最后甚至反推出RE
+            + 和Trie相比，优势在于会合并公共后缀(最小化后)，状态数更少，空间效率可能更高(如果CharCategory种类不多，即DFA table列不多的话)
+            + 当状态少时，要识别一个有限语言，可能比hash表的member更高效
+            + 作为对比，根据语言集合大小，可考虑的测试手段：bloom filter -> trie tree -> hash table -> DFA
+7. 小结
+    + 只要必须识别的单词是一个有限集合，都有必要考虑DFA(其他选择包括hashtable、trie、bloom filter等)
+    + 最初词法分析器由于提供O(n)的渐进复杂度，以及很小的常因子，所以从语法分析中独立出来；后来由于高性能语法分析算法的出现，这种性能考虑弱化了，只是作为正交模块的习惯被继承下来
+        + 换句话说，出于性能考虑，相比LALR语法分析器，Parser combinator对基于DFA的词法分析器依赖更大
