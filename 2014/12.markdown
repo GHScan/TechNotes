@@ -95,7 +95,7 @@
 
 #### 24. Engineering a compiler. 第2章，词法分析器
 2. 识别单词
-    + 要识别特定单词，可以通过嵌套O(K)层if/else来手工识别
+    + 要识别特定单词，可以通过嵌套K层if/else来手工识别
     + 嵌套if/else的代码可以表示为状态迁移图，也就是所谓的FA(finite automation)
     + FA的形式化表示：
         1. 状态集合S(包括错误状态se)
@@ -178,6 +178,8 @@
 6. 高级主题
     + 从DFA到RE - Kleene construction
         + 很像最短路径中的Floyd算法
+    + 从DFA到RE 2 - States reducing
+        + 性能比Kleene construction高，避免了很多冗余计算
     + DFA最小化算法之2 - Brzozowski算法
         + 利用Subset construction会合并公共前缀的性质
         + 定义操作
@@ -195,3 +197,57 @@
     + 最初词法分析器由于提供O(n)的渐进复杂度，以及很小的常因子，所以从语法分析中独立出来；后来由于高性能语法分析算法的出现，这种性能考虑弱化了，只是作为正交模块的习惯被继承下来
         + 换句话说，出于性能考虑，相比LALR语法分析器，Parser combinator对基于DFA的词法分析器依赖更大
     + 判断两个RE/NFA是否等价，可以比较它们的最小化DFA
+
+#### 31. 词法分析总结
+1. 编译器是语言到语言的翻译，其中前端的工作是理解源语言的语法和语义。这里本没有词法的概念，词法分析是早期为了性能而引入的，因为自动机理论能提供O(n)的时间复杂度，这一优势对早期的语法分析器尤为重要
+    + Parser combinator这样的高层Parser也能从独立的lexical analysis受益，即以Token流而非Char流作为输入
+2. 词法分析的目的，只是通过类似"if str[0] == 'i' && str[1] == 'f'"的方法，从源码字符串中抽取语法分析所需要的终结符。因为Terminate symbols不要求递归，所以用正则语言就能描述，从而可以从语法分析中剥离出来
+    + 正则语言，只支持顺序、选择、循环三种操作(因此，状态是有限的，可以用FA描述；其中循环通过带环图描述)，而上下文无关语言，是RL的超集，还能进行递归，因此，直接用CFG来描述词法规则也是可行的，比如在Parser combinator中，将终结符也作为Parser
+    + CFG的表达能力，关键在于抽象和应用抽象，加上基本单元(终结符)，实际上已具备lambda演算的计算能力，因此自然能够做递归，也能够覆盖RE的顺序、选择、循环操作
+3. 相比直接用源码描述词法分析规则，采用自动机(DFA)来描述一个语言的词法规则更直观；进一步的，可以使用正则表达式来形式化表示。现代词法分析的任务就是，根据描述词法单元的正则表达式，生成高性能的词法分析器，这中间可能涉及`RE->NFA->DFA->CodeGen`的操作
+4. 词法分析中涉及的算法和细节
+    + 将正则字符串Parse成正则的AST。这里可以手工进行Recursive decent parsing，或者用Parser combinator
+    + 根据正则AST引用Literal string的情况，将字符分类，减小输入空间；输出的Character classify table是一个`Char=>Int`的表。比如`\d+|[a-z]`，只需要3个分类，`0-9`、`a-z`、`其他`，于是，输入可以被转换成0~2的整数
+        + 分类算法：对于一个输入的分组chars，进行chars.groupBy(c=>table(c))，然后每个group中的字符都分配一个更大的id。最后进行一趟处理(0 until n).groupBy(c=>table(c))然后从0开始分配id
+    + 根据包含CharCategory的正则AST，生成NFA。这里得到的NFA可以直接用于匹配，可以进一步转换成DFA
+        + Thompson construction
+            + 这里是非常简单的一趟递归pattern matching，每次输出一个(开始状态,接收状态)对
+            + 分支无非是，Chars、KleeneStar(用KleenePlus会有问题)、Concatenation、Alternation
+        + 由于这里实际上是离线算法，NFA状态数已知，因此每个状态可以分配一个整数，进而，状态的集合，比如NFA的configuration，可以表示成Bitset
+    + 将NFA转换成DFA
+        + Subset construction
+            + 这里实际上是在模拟NFA的执行
+            + 可以用整数表示NFA状态，以Bitset表示NFA状态集合，从而进行高效的并运算和相交测试
+            + 离线计算e-closure{Si}，即通过空字符与状态Si直接/间接相连的状态集合
+            + move({s1, s2...}, c) => 将e-closure{s1.transitions.filter(_.symbol==c).map(_.target)}并起来
+            + 多个NFA接收状态可能对应同一个DFA状态，DFA接收状态的属性应该考虑NFA状态的优先级。比如，对于输入for，它应该作为token("for")，而非token("IDENT")
+    + DFA最小化
+        + Hopcroft算法，常用
+            + 最初按(非接收状态组，接收组1，接收组2...)分组，之后对每个分组，尝试在所有字符集下进行split，直到所有分组都不可再细分
+        + Brzozowski算法
+            + 利用Subset construction会合并公共前缀的事实，进行一系列操作得到最小化：reverse => subset => reachable => reverse => subset => reachable
+            + 由于reverse会导致多接受状态变成一个接受状态，因此将该算法应用到Scanner上稍微有些麻烦
+    + NFA/DFA上的相关操作
+        + union: 添加新开始状态指向已有的开始状态，将所有接收状态的并作为新的接收状态集合
+        + complement: 反转所有状态的开始/接收角色。由于原先的Serror变成了接收状态，所以这里可能需要用DFA来表达
+        + intersect: (a.complement | b.complement).complement
+        + diff: a & b.complement
+    + DFA到RE
+        + Kleene construction算法，较慢，N^3
+            + 类似Floyd最短路径算法，以动态规划的方式，构造任意两个状态间的路径的并，最后再将开始状态到所有接收状态的路径并起来
+        + State recuding算法，更高效
+            + 每次移除一个状态，移除的时候，为它的每个前驱，增加到每个后继的新路径，该路径是通过被消除状态抵达的
+            + 对于每个接收状态，分别消除开始状态和它之外的状态，然后再枚举所有路径(这里分两种情况，开始状态和该接收状态是否是同一状态)。最后并上到所有接收状态的路径
+        + 为了实现上面的基于正则的构造算法，最好以正则AST来操作，在正则AST构造的过程中，根据正则性质，进行各种结合、简化
+            + 有了这里的正则AST变换，也就能对正则AST进行独立的simplify操作
+    + DFA状态迁移表的合并
+        + 相同列可以合并，减小表规模
+    + 基于上面的算法，能够进行的衍生操作
+        + RE简化：RE => NFA => DFA => minimal DFA => RE
+            + 直接在RE的AST上进行变换，也能收到有限的简化效果
+        + 根据一组单词，生成正则：将单词并起来，作为一个Closure Free RE ，之后再进行RE简化
+        + 判断两个RE的等价性： RE1 => minimal DFA1，RE2 => minimal DFA2，DFA1 == DFA2 ?
+        + 构造特殊的DFA，再输出对应的正则
+            + 比如，%n==0的结果，构成一个0~n-1的有限集，因此，可以构建DFA，然后再最小化进而输出正则
+    + 支持高效readChar和rollback的双缓冲CharStream
+    + 考虑总是利用Graphviz进行FA的图像化输出，有利于调试
