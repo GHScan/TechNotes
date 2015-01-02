@@ -1,0 +1,31 @@
+#### 23. Engineering a compiler. 第3章，语法分析器
++ 简介
+    + 语法分析的主要目的，是判断输入的单词流(每个单词都被标注成某个语法范畴(syntactic category))，是否是一个语法上有效的语句(sentence)。为了回答这个成员判定问题，我们首先需要一种形式化的方法描述语言。通过将语言限制到上下文无关语言这个集合，我们能够保证高效的回答这个判定问题。
+    + 语法分析：对于形式文法(formal grammar)G，以及单词流s，词法分析要做的就是找到G生成语句s的一个推导
+        + 推导应该无歧义。推导过程的graph描述，就是语法树(concrete syntax tree, parse tree)
+        + 语法分析的输入是单词流，输出是推导(或者失败时的诊断信息)。如果不需要完整的推导信息(parse tree)，可以只输出抽象语法树(AST)，或者采用其他语义动作(semantic action)，直接进行解释
+    + 总结：
+        + 对于输入的单词流/字符流(如果没有经过Scanner的话)，语法分析尝试判定它是否是特定语言L(G)的成员。L(G)本身是无限集合，成员判定方法不明，通过将G限制为CFG，得到另一种高效的成员判断方法，即，在CFG中，能否找到唯一的一个推导，生成输入的句子。通过自底向上/自顶向下的parse，语法分析器输出错误，或者输出一个推导作为结果。推导的等价表示是具体语法树，一般不需要这样多的信息，而是输出AST，或者通过语义动作，输出其他属性值，比如表达式parse中，可以直接解释结果并返回。
++ 语法的表示
+    + RE无法描述程序语言，因为它无法计数，只包含有限的状态
+        + RE只是CFG的一个子集，对应产生式：A->a, A->a B
+    + 我们需要比RE更强大的语言，同时具备高性能的特点。CFL正是传统的解决方案，尤其是的它的子集LR(1)、LL(1)，都能生成高效的识别器。
+    + 术语(Glossary)
+        + Context free grammar(上下文无关文法): 对于语言L，CFG定义了表示L中有效Sentence的集合
+            + CFG的定义包括4个元素：T，NT，P，S，分别是终结符、非终结符、产生式、开始符号
+        + Sentence(语句): 可以从grammar rules推导出的符号串(string of symbol)
+        + Production(产生式): CFG中的每个规则(grammar rule)都称为一个产生式
+        + Nonterminal symbol(非终结符): 是语法变量(syntactic variable)，用来进行抽象(abstraction)和表达结构(structure)
+            + 正是因为NT的存在，CFG支持递归，进而比RE更强大
+        + Terminal symbol(终结符): L(G)中单词的集合，对应Scanner输出的语法范畴(syntactic category)
+        + Goal symbol/Start symbol(开始符号): 
+        + Derivation(推导): 对开始符号，应用一系列重写(rewrite，选择产生式来替换非终结符)，得到语句的过程。
+        + Sentential form(句型): 有效推导过程中出现的符号串(string of symbol)
+        + Parse tree/Syntax tree(语法分析树/语法树)：A graph that represents a derivation
+        + Leftmost derivation、Rightmost derivation(最左/最右推导): 一种推导，每次都重写最左/右的非终结符
+        + Ambiguity(二义性): 如果L(G)中的某个句子有多个最左/最右推导，则说文法G具有二义性
+    + CFG的层次结构，由大到小
+        + 任意CFG：Earley算法可以在O(n^3)的时间内解析
+        + LR(1): 从左到右扫描，右推导，允许lookahead一个单词
+        + LL(1):
+        + RG: 正则文法，和RE等价
