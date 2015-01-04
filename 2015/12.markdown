@@ -21,6 +21,7 @@
         + Goal symbol/Start symbol(开始符号): 
         + Derivation(推导): 对开始符号，应用一系列重写(rewrite，选择产生式来替换非终结符)，得到语句的过程。
         + Sentential form(句型): 有效推导过程中出现的符号串(string of symbol)
+            + 句型对应推导过程中部分完成的Parse tree的下边缘
         + Parse tree/Syntax tree(语法分析树/语法树)：A graph that represents a derivation
         + Leftmost derivation、Rightmost derivation(最左/最右推导): 一种推导，每次都重写最左/右的非终结符
         + Ambiguity(二义性): 如果L(G)中的某个句子有多个最左/最右推导，则说文法G具有二义性
@@ -29,3 +30,66 @@
         + LR(1): 从左到右扫描，右推导，允许lookahead一个单词
         + LL(1):
         + RG: 正则文法，和RE等价
++ 自顶向下语法分析(Top-down parsing)
+    + 使用Topdown-parsing的时候，CFG的很大一个子集可以无需回溯的高效Parse——即Backtrack-free grammar(Predicate grammar)
+    + Top-down parser需要消除左递归，否则将是死循环
+        + 直接左递归(direct left recursion): 
+            + 通过EBNF的star手法来消除
+            + BNF中，实际上是：A->A b | c，改写为A -> c A2; A2->e | b A2
+        + 间接左递归(indirect left recursion):
+            + 使用消除循环引用的方法，即forward subsituation
+            + 图算法：已知二维的有向图，先将每个节点编码成数字，于是，有向边分别指向左和右。我们通过消除指向左边的边，来使得引用总是从i指向i+1或更大，从而避免循环引用。
+                1. 当i==0时，消除指向自身的引用，从而有向边总是指向0以上
+                2. 对i>1，先从j=0，到j=i-1，替换每个i->j的边，每次都将得到j+1以上的边；因此，当j==i-1的时候，i将只有i以上的边；此时再消除i->i的引用，将只剩下指向右边的边
+            + 在左递归文法这里，所谓i->j的边，其实是Ni -> Nj xxx，即，产生式右边的第1个位置的非终结符号，构成一条边。我们要做的就是，反复展开右边的Nj，使得右边的序号增大，直到右边只剩下i以上的非终结符好，最后再利用消除直接左递归的手法，消除i->i的引用。over
+                + 这里消除直接左递归引入的新符号，不会形成左递归
+    + 提取左因子(left factoring)
+        + 提取左因子，使得基于预测的高效Parser成为可能
+        + 形如，A-> L R1| L R2| C1 | C2，改写成 A-> L N | C1 |C2，N->R1 | R2
+    + 为了减少回溯，甚至不回溯，给出Backtrack-free grammar(Predicate grammar)的定义(对应的Parser，叫Predicative Parser)
+        + 首先是FirstSet: 给定终结符/非终结符，返回它的第1个终结符集合
+            + 终结符(包括EOF和Empty)，其FirsetSet是自身
+            + 非终结符的FirstSet，通过不动点算法来求
+                + 当任意非终结符的FirstSet仍然在变化的时候，继续迭代
+                + 非终结符N的FirstSet是其各个产生式右边符号序列的FirstSet的并，即FirstSet(N) = FirstSet(p1.body) | FirstSet(p2.body) | ...
+                + 符号序列seq的FirstSet定义为，(FS(s1) - Empty) | (FS(s2) - Empty) | ... FS(sn)，这里，s1 s2 .. sn是seq的一个前缀，sn是第1个FirstSet不包含Empty的符号
+        + 然后是FollowSet: 给定非终结符，返回它之后可能出现的终结符
+            + 仍然是不同点算法
+                + 对产生式p，它的定义是N -> A1 A2 ... An。初始化 tail=FollowSet(N)，从右到左迭代；如果Ai是终结符，则tail=FirstSet(Ai)；如果Ai是非终结符，先FollowSet(Ai) |= tail，然后，如果FirstSet(Ai)包括Empty，则tail |= FirstSet(Ai)，否则tail = FirstSet(Ai)
+        + 最后是First+Set: 给定产生式，返回它可能的第1个终结符
+            + 如果FirstSet(p.body)包含Empty，则First+Set是FirstSet(p.body) | FollowSet(p.nonTerm)，否则First+Set等于FirstSet(p.body)
+        + 所谓Backtrack-free grammar，是指，文法中，对任意非终结符N，它的任意两个产生式，其First+Set不相交
+            + 因此，当开始Parse非终结符N时，给定输入终结符T，总是能唯一的确定产生式，从而避免回溯
+            + 即使文法不是LL1的，Predicate信息仍然能用来优化Top-down parser的性能；当然，由于需要有回溯逻辑，会比LL1 Parser慢
+            + ANTLR实现了LL(k)算法
+    + 没有算法能保证将任意CFG改写成LL1，但是，一般通过左递归消除、提取左因子，我们能得到LL1，或者接近LL1；前者能得到高效的无回溯Parser，后者的Predicate信息可用于提高回溯Parser的性能
+    + 常见的Topdown-parsing方案包括
+        + 回溯Parser
+            + 注意要确保成功，应该支持非确定性Parse，这意味着，parse函数的返回应该是序列
+            + Parser combinator
+                + 性能取决于library的2次处理
+                + 左递归
+                    + 手工改写直接左递归为EBNF的rep
+                    + 小心避免间接左递归
+                + 回溯
+                    + 手工提取左因子
+                    + 尽量写成LL1的，否则开销是指数的
+                + 错误处理
+                    + 当不是LL1的时候，失败回溯可能不容易做(当需要到兄弟节点的子孙去回溯的时候)
+            + Top-down parser: 
+                + 可以递归或通过状态栈来迭代
+                + 写成非确定性递归，比如，parse的返回值是Stream[Result]
+                + 很容易通过First/Follow算法整合向前看信息，即使文法不是LL1的，也可以减少回溯的分支数，从而提高性能
+            + 手工递归下降(hand-code recursive descent parsing)
+                + 优点是是可以实施各种优化手段，比如不同的非终结符采用不同的LL(k)向前看
+                + 缺点是要为每个编译器编写递归主体
+        + LL1 Parser
+            + 手工递归下降
+                + 先处理文法(或者找源语言已有的LL1文法)：G -> 消除直接、间接左递归 -> 提取左公因子 -> 计算First+Set，最后提供每个产生式的预测符号给编码者
+                + 每个非终结符内部都可以进行细节调优
+            + Table driven LL1 Parser
+                + G -> remove left recursion -> left factoring -> Map[NonTerm, Map[Term, Production]]，最后编写Parser主体(递归/迭代)，根据Predicate table来选择产生式
+            + Direct code LL1 Parser
+                + 根据Predicate table生成一组递归调用的函数
+        + LL(k) Parser
+            + ANTLR
