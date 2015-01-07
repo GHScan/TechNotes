@@ -153,3 +153,30 @@
     + Bottom-up parser类型
         + Table driven LR parser: LR Parser的标准算法
         + Direct code LR parser: 根据Action、Goto表生成代码。以代码的方式模拟带递归的DFA
++ 实践中的问题(Practical issues)
+    + Error recovery
+        + 由于ide等工具的需要，编译器应该能一次parse反馈尽量多的错误
+        + 一种做法是，通过synchronizing word来同步parser状态
+            + LL1 parser：发现错误后(调用中抛出的异常)，忽略一系列输入，直到发现对应当前NonTerm帧的同步单词，然后从当前NonTerm帧返回代表错误的语法树
+            + LR1 parser: 发现错误后，忽略输入直到找到同步单词，然后连续弹出状态栈，直到发现某个状态存在Goto[s, NonTerm]，于是压栈Goto项，当做Parse成功(得到是错误语法树)
+            + 常用的同步单词是“;”、“}”等
+    + Unary operator
+        + 添加一元运算符要谨慎
+    + Handing context-sensitive ambiguity
+        + 比如，在C语言中，如果不通过[]和()区分数组访问和函数调用的话，那么，由于无法区分Factor中的`array-ident ( opt-exp-list )`与`function-ident ( opt-exp-list )`，必然导致歧义
+            + 可以在CFG中合并两个产生式，然后在语义分析中通过类型来区分
+            + 也可以将类型信息通过符号表反馈给Scanner，然后Scanner对不同类型的ident分别输出array-ident、function-ident等
+    + Left recursion versus Right recursion
+        + Top-down parser只能右递归，没得选(需要的话，必须将直接/间接左递归转换成右递归)
+        + 对于Bottom-up的LR parser来说，左递归、右递归都是允许的
+            + 左递归的状态栈深度固定，边移入边归约；而右递归对栈的需求是线性的，只有移入所有子节点后，才进行连续的归约
+            + 无论左递归还是右递归，显然语义不能破坏，比如结合性
++ 高级主题
+    + 优化文法(Optimizing a grammar)
+        + 如果能改写文法，使得推导的语法树高度减小，那么，对于LL parser来说，意味着更少的递归调用；对LR来说，意味着更少的Reduce(显然Shift次数不会变，恒等于输入流长度)，那么，性能会有所提高
+        + 减少语法树层次的一种方法是，将useless production(即其右边只有一个符号的产生式)代入到每个引用中，这将减小最终语法树的层次。但由于产生式代换有可能导致产生式总数目增加，对LR parser来说，意味着更多的状态，所以反而有可能降低性能(对dcache不友好)；而如果是LL parser，可以通过人工调整代码，稍微弥补产生式数量增加带来的开销
+    + 压缩LR1表
+        + 分别压缩Action表和Goto表，使得相同的行/列被合并，在每次查表之前，经过一个`状态->行号`、`符号->列号`的映射
+        + 在文法上面，合并引用相同的终结符号
+        + 将Table driven parser改为Direct code parser，后者将不再处理空的单元格。同时由于避免了循环(label+goto)，通过适当调整代码排布，有可能得到更好的icache亲和性
+        + 如果语言足够简单，不容易conflict的话，考虑SLR、LALR，他们的状态数和LR0一样
