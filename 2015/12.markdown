@@ -93,3 +93,63 @@
                 + 根据Predicate table生成一组递归调用的函数
         + LL(k) Parser
             + ANTLR
++ 自底向上语法分析(Bottom-up parsing)
+    + 推导，是从开始符号，经历一系列句型，最终得到语句的过程。推导的过程是Top-down的，因此，Bottom-up，就是推导的逆过程，即，从语句开始，经历一系列句型得到开始符号。Top-down过程，每次选择最左的产生式进行rewrite，因此是Leftmost derivation；而Bottom-up过程，由于输入单词流，是从左到右的，每次需要归约当前符号串，所以，相当于reversed rightmost derivation。
+    + Top-down parser，是从开始符号往下完成Parse tree，任何时候，栈上保存的是部分完成的Parse tree的下边缘；Bottom-up parser，是从单词流往上完成Parse tree，任何时候，栈中保存的是部分完成的Parse tree的上边缘。
+    + LR(0)乃至LR(k)，识别的上下文无关语言是一样大的，只是接受的文法不同，k越大，接受的文法越多，而k越小，则要求文法编写者以更复杂的方式提供文法。
+    + 判断一个文法是否是LR的，最简单的办法是构建LR Parser，看是否产生Shift-reduce或者Reduce-reduce冲突。
+    + 术语
+        + Handle(句柄): 由产生式p和位置k一起构成了一个句柄。(A->B, k)，意思是，在LR语法分析器的累积状态k处，进行一次A->B的归约，得到的新的句型(由累积状态作为前缀，还未接受的单词流作为后缀)是有效推导的句型序列的一部分
+        + Shift(移入): 把输入单词流中的下一个单词放入累积符号栈中，并更新DFA状态
+        + Reduce(归约): 将当前累积符号栈的栈顶符号序列，重写为一个非终结符，并更新DFA状态
+        + Reduce-reduce conflict: 下一个单词，导致的归约有多个，不确定应该执行哪个操作。Ambiguity grammar
+        + Shift-reduce conflict: 下一个单词，既可以移入，也可以归约。Ambiguity grammar
+        + LR0 item(LR0 项): 由产生式，及当前位置构成。当前位置的取值是0~p.body.length
+            + 根据位置的情况，项可能分三种：
+                1. Possibility: 可能的，pos == 0
+                2. Complete: 完成的。可归约，pos == p.body.length
+                3. Partially complete: 部分完成的。pos > 0 && pos < p.body.length
+        + LR1 item(LR1 项): LR0 item的基础上，加上一个Lookahead符号(终结符)
+        + Core LR1 item: 开始符号的所有项，或者非开始符号的位置>0的项
+            + 所有非核心项，都可以从核心项closure出来。所谓closure操作，即，如果位置pos后紧接一个非终极符，那么，将它的所有Possibility项加入集合，递归该过程直到不动点
+        + set of LR1 items: LR1 item的集合。因为LR parser的状态机，本质上是支持递归的DFA，所以如果把LR1 item看做NFA状态，那么，set of LR1 items就是LR1 item的配置，对应DFA状态
+        + Canonical collection of sets of LR1 items: LR1项集的规范簇。看做整个DFA
+    + LR语法分析器算法
+        1. 准备Action表
+            + Action表是2维表，第1维输入是状态号，第2维输入是终结符
+            + 查表结果有三种
+                1. Reduce p: 表示归约产生式p
+                2. Shift j: 移入当前符号，并转移到状态j。DFA查询
+                3. Accept: 当前输入合法。输入流应该只剩下List(Eof)
+        2. 准备Goto表
+            + Goto表是2维表，第1维输入是状态号，第2维是非终结符
+            + 查表结果是另一个状态号，表示归约的结果。这里也是DFA查询
+        3. 算法
+            1. 准备状态栈和符号栈，状态栈用于支持递归的DFA句柄查找，符号栈用于根据语义动作(Semantic action)聚合结果，输出CST、AST等
+            2. 将初始状态入栈
+            3. 查询Action表，Action(stateStack.top, scanner.top)，差别结果：
+                + Shift j: 将输入token压入符号栈，将DFA转移的目标状态j压入状态栈，递归
+                + Reduce p: 从符号栈弹出p.body个符号并执行语义动作然后压栈；从状态栈弹出p.body个状态，然后查Goto(stateStack.top, p.nonTerm)并压入状态栈，递归
+                + Accept: 如果输入只剩下List(Eof)，则语言识别成功，将此时符号栈上的结果输出
+        + 本质上，LR算法其实是通过DFA来查找句柄，只不过通过栈引入了递归逻辑；每次归约的时候，从栈上弹出产生式的body，恢复DFA的上一个状态，然后根据归约的NonTerm继续进行DFA查找
+            + 之所以可以通过DFA查找句柄，是因为，由句柄的集合构成的语言，是有限的，而有限的语言，总是可以通过DFA描述
+    + Action、Goto表的构建算法
+        + 公共步骤，构建DFA：从开始符号的0位置项集出发，closure过后，遍历所有终结符/非终结符，move(set, symbol)得到各个衍生核心项集。这里的每个核心项集，是一个DFA状态。
+        + LR(0): 没有向前看符号。先构建DFA后，可以开始构建Action、Goto表。每个DFA状态之间的NonTerm迁移，添到Goto表中作为一项。Term迁移，作为Action表中的Shift动作。如果一个项集，有Term迁移，同时也有归约项，则构成Shift-reduce conflict，如果有多个归约项，则构成Reduce-reduce conflict。一般处理成，Term边构成Shift，非Term边一律Reduce
+            + DFA状态少，容易conflict
+            + 每个DFA状态，一旦有多个Reduce项、或者同时有Reduce项和Term边，都conflict。因此接受的文法少
+        + SLR: 在LR0的基础上，对于有Reduce项的项集，只以其产生式左边的NonTerm的FollowSet作为向前看符号，因此，允许单一DFA状态有多个Reduce项或同时有Term项，只要FollowSet不想交，都不构成conflict
+            + DFA状态少。和LR(0)状态数一样
+            + Reduce的FollowSet相交(或者与Term边相交)才构成conflict。因此接收的文法比LR(0)大
+        + LALR: 先构建DFA。对于每个项集(DFA状态)中的项(表示为项集号+项)，计算它的自生成向前看符号，以及它和其他项的传播关系，然后用不动点的方式，传播向前看符号。最终DFA中的每个状态的项，都带有一个向前看符号集合，这个集合是FollowSet的子集，因此允许的文法比SLR大
+            + 自生成向前看符号和传播关系
+                + 对于核心项(p, pos)，以SPECIAL_TERM为向前看符号计算closure并move，如果一个target项，以SPECIAL_TERM为向前看符号，则原始项和target项构成传播关系；否则，产生的lookAhead作为target项的自生成符号，用于将来的传播
+            + DFA状态少。和LR(0)状态数一样
+            + 通过生成、传播的方式构造每个项的向前看符号集，因为它总是FollowSet的子集，所以conflict更少，接收的文法范围更大(注意LR parse接收的语言都一样)
+        + LR(1): 以带Lookahead的开始项，构建DFA。最后Reduce的时候，以自带的Lookahead作为向前看符号
+            + DFA状态多，因为Lookahead将区别不同的核心项集。状态多，因此更少的conflict，接收更大的文法；但同时空间开销大，C语言的Parser对应的LALR只需要数百状态，LR1需要数千状态
+            + 每个Reduce的Lookahead集合更精确，是LALR传播生成的Term集合子集，所以更少冲突
+                + 构造LALR的另外一种方法，是先构造LR(1)，然后合并所有LR0部分相同的LR1项集，向前看符号取并集。这里的合并，不会产生Shift-reduce conflict，但是会产生Reduce-reduce conflict，这也说明LALR接收的文法比LR1小
+    + Bottom-up parser类型
+        + Table driven LR parser: LR Parser的标准算法
+        + Direct code LR parser: 根据Action、Goto表生成代码。以代码的方式模拟带递归的DFA
