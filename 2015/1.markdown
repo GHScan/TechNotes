@@ -180,6 +180,7 @@
         + 在文法上面，合并引用相同的终结符号
         + 将Table driven parser改为Direct code parser，后者将不再处理空的单元格。同时由于避免了循环(label+goto)，通过适当调整代码排布，有可能得到更好的icache亲和性
         + 如果语言足够简单，不容易conflict的话，考虑SLR、LALR，他们的状态数和LR0一样
+
 #### 8. Design Patterns: Elements of Reusable Object-Oriented Software
 + Creational Patterns(创建型模式)
     + Abstract factory(抽象工厂)
