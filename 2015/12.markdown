@@ -1,4 +1,4 @@
-#### 23. Engineering a compiler. 第3章，语法分析器
+#### 2. Engineering a compiler. 第3章，语法分析器
 + 简介
     + 语法分析的主要目的，是判断输入的单词流(每个单词都被标注成某个语法范畴(syntactic category))，是否是一个语法上有效的语句(sentence)。为了回答这个成员判定问题，我们首先需要一种形式化的方法描述语言。通过将语言限制到上下文无关语言这个集合，我们能够保证高效的回答这个判定问题。
     + 语法分析：对于形式文法(formal grammar)G，以及单词流s，词法分析要做的就是找到G生成语句s的一个推导
@@ -180,3 +180,290 @@
         + 在文法上面，合并引用相同的终结符号
         + 将Table driven parser改为Direct code parser，后者将不再处理空的单元格。同时由于避免了循环(label+goto)，通过适当调整代码排布，有可能得到更好的icache亲和性
         + 如果语言足够简单，不容易conflict的话，考虑SLR、LALR，他们的状态数和LR0一样
+#### 8. Design Patterns: Elements of Reusable Object-Oriented Software
++ Creational Patterns(创建型模式)
+    + Abstract factory(抽象工厂)
+        + Intent(意图)：提供一个创建一系列相关或相互依赖的对象的接口，而无需指定它们具体的类
+        + Motivation(动机): 考虑LookAndFeel，为保证客户代码可以无缝切换不同的LAF，客户不应该直接使用具体LAF下的窗口组件，而应该通过LAF工厂来创建窗口组件的接口，然后在组件接口集上进行操作
+        + Applicability(适用性)
+            + 系统要独立于产品的创建、组合和表示时
+            + 系统想要在多个产品系列之一做配置时
+        + Participants(参与者)
+            + AbstractFactory => WidgetFactory
+            + ConcreteFactory => WindowsWidgetFactory, MacWidgetFactory
+            + AbstractProduct => Button, ScrollBar
+            + ConcreteProduct => WindowsButton, WindowsScrollBar
+        + Consequences(效果)
+            + 分离具体的类：客户只依赖于抽象工厂接口，而不依赖于具体工厂和具体产品
+            + 易于切换产品系列。只需传入不同的具体工厂
+            + 利于产品的一致。即，任意时刻，只能访问同一个具体工厂创建的产品，不可能出现WindowsDialog+MacButton的组合
+            + 难以添加新产品，因为那样需要修改抽象工厂和所有具体工厂
+        + Known uses(已知应用)
+            + LookAndFeel
+            + WindowSystem
+            + RDBMS API
+                + 比如Python的PEP249规定的DB-API 2.0，符合这组API的模块，如sqlite、mysql等，可以无缝切换，客户代码完全不用修改(唯一的变换是import和connection创建)
+                + 微软的OLE DB也是例子
+        + Related Patterns(相关模式)
+            + Abstract factory通常被实现为工厂方法(Factory method)的集合，但是也可以通过Prototype实现
+            + 具体工厂一般是Singleton
+    + Builder(构建者)
+        + Intent: 将一个复杂的创建过程，与创建的结果分离，使得基于同样的创建过程，可以创建不同类型的对象
+        + Motivation: 考虑将RTF(Rich text format)转换成其他格式。因为RTF的parse过程很复杂，为每种格式编写转换过程，将非常困难。通过抽象出Builder接口，然后在Parse过程中将相应的事件转发给Builder的方法，从而允许传入代表不同目标格式的具体Builder，复用同一套Parse+Build代码
+        + Applicability
+            + 创建对象的复杂算法，应该独立于对象的组成、装配方式时
+            + 构造过程允许创建不同的表示(具体产品)时
+        + Participants
+            + Builder => RTFConverter
+            + ConcreteBuilder => ASCIIConverter, TeXConverter, TextWidgetConverter
+            + Director => RTFParser (或者RTFReader)
+            + Product => ASCIIText, TeXText, TextWidget
+        + Consequences
+            + 允许改变产品
+            + 将构造代码和表示代码分离
+            + 可以对构造过程进行精细控制(相比构造函数的一步到位，Builder pattern可以一步步来做)
+        + Known uses
+            + RTFConverter
+            + Parser作为Director，ProgramBuilder作为Builder，ASTBuilder、Evaluator作为ConcreteBuilder
+            + ClassBuilder: 客户代码去一步步创建类的字段、方法
+            + ByteCodeStream: 客户代码去逐步添加指令(操作码+操作数)
+        + Related patterns
+            + Builder与Abstract factory相比，前者强调的是，一步步去创建一个复杂对象，而后者是强调创建一组关联对象(通常单个创建是一步到位的)
+    + Factory method(工厂方法)
+        + Intent: 定义创建对象的接口，然后由具体实现去决定实例化哪个产品
+        + Motivation: 比如，在框架中创建产品，而具体产品可配置(通过配置不同的工厂方法)，客户代码仅依赖于产品接口和工厂方法接口
+        + Applicability
+            + 不想依赖具体的产品类型时
+            + 希望延迟产品的创建到子类时
+            + 将产品的创建委托给帮助类，从而将产品类型的选择，局部化到帮助类中(抽象工厂模式是一个例子，其中某个具体工厂就是一个局部化了类型选择的帮助类)
+        + Participants
+            + Product
+            + ConcreteProduct
+            + Creator
+            + ConcreteCreator
+        + Consequences
+            + 将具体产品的创建延迟到子类，相当于向子类开放了一个Hook
+        + Known uses
+            + MVC
+        + Related patterns
+            + 常被用于Abstract factory、Template methods
+    + Prototype(原型)
+        + Intent: 用原型实例指定创建对象的类型及数据，通过拷贝原型创建新对象
+        + Motivation: 常见文档编辑工具提供的模板文档功能，比如Unity中的Prefab
+        + Applicability
+            + 当类的实例状态只有有限的组合、或常见初始状态只有有限组合时，可以枚举这些组合存储为原型，然后在需要的时候拷贝
+        + Participants
+            + Prototype
+            + ConcretePrototype
+                + 事实上，不要求类型不同，只要实例状态不同、代表常见案例即可
+            + Client
+        + Consequences
+            + 具有Abstract factory、Builder模式的优点，客户不依赖于具体原型的类型
+            + 允许运行时修改原型列表
+            + 允许改变属性值来添加新的原型
+                + 相比之下，其他Creational pattern是用于抽象创建的类型，而Prototype是抽象创建的实例的(当然也能抽象创建的类型)，比前者更动态
+            + 增加原型数量并不需要增加新的类型
+        + Known uses
+            + 文档编辑器允许定义文档模板
+            + 窗口编辑器允许自定义控件模板
+            + 常见的游戏引擎都支持定义游戏对象模板
+        + Related pattern
+            + Abstract factory、Composite、Decorator都可以从Prototype中受益
+    + Singleton(单例)
+        + Intent: 保证一个对象只有一个实例，并提供全局访问点
+        + Motivation: 相比全局变量，Singleton追加了唯一实例的保证
+        + Applicability
+            + 要求唯一实例
+            + 要求唯一实例，且实例的具体类型能够被延迟到子类中决定
+        + Participants
+            + Singleton
+        + Consequences
+            + 对唯一实例的受控访问
+            + 允许对表示精细化：具体实例可以由子类决定
+            + 可以以类似方式，将实例个数控制到K个
+        + Known uses
+        + Related patterns
+            + ConcreteFactory、ConreteBuilder都可以被实现为Singleton
++ Structural Patterns(结构型模式)
+    + Adapter(适配器)
+        + Intent: 将一个类的接口转换为客户希望的另一个接口，使得原本不兼容的代码可以一同工作
+        + Also known as: Wrapper
+        + Motivation: 有时，为复用被设计的类不能被复用，仅仅是接口不兼容，所以可以加一层适配器
+        + Applicability
+            + 相比适配一个具体类，如果改为适配一个接口的话，相当于为目标接口实现了一组具体类
+        + Participants
+            + Target
+            + Client
+            + Adaptee: 被适配的接口
+            + Adapter: 实现Target接口的Adaptee的Wrapper
+        + Consequences
+        + Known uses
+        + Related patterns
+            + Adapter对比Decorator，虽然同为Wrapper，但前者源/目的类型不同，而后者相同，结果是后者可递归组合
+            + 对比Proxy，和Decorator类似，Proxy的源/目的类型也相同
+    + Bridge(桥接)
+        + Intent: 将抽象和实现分离，使得它们都可以独立变化(接口变化，和类层次变化都可)
+        + Motivation: 抽象和实现通过继承来关联，在某些时候可能太强了，因为，这意味着，抽象和实现接口应该相同，类层次应该相同；但实际上，很有可能抽象中的大部分代码，都是与实现无关的，因此，可以通过增加一个额外层次，通过组合而非继承来关联抽象和实现，于是双方都可以独立变化，抽象中与实现无关的代码，可以放在抽象的接口中，从而复用。简单来说，就是将一个抽象层拆分成两个抽象层
+        + Applicability
+            + 你需要抽象和实现动态绑定，即允许运行时切换实现部分
+            + 需要允许分别扩充抽象和实现的类层次
+        + Participants
+            + Abstraction: 持有Implementor实例
+            + RefinedAbstraction: Abstraction的子类
+            + Implementor
+            + ConcreteImplementor: Implementor的子类
+        + Consequences
+        + Known uses
+            + WindowSystem: Window(Abstraction), ResizableWindow(RefinedAbstraction), WindowImpl(Implementor), WindowsWindowImpl(ConcreteImplementor), MacWindowImpl(ConcreteImplementor)
+            + STL的Stack/Queue接收一个序列类型作为参数，这里的Stack/Queue即是Abstraction，序列类型是Implementor，Vector/List可以作为ConcreteImplementor参数
+        + Related patterns
+            + Abstract factory可以用来配置一个Bridge
+    + Composite(组合)
+        + Intent: 将对象组合成树形结构，并且单个对象和对象的组合，对用户提供一致的抽象，用户可以不加区分的使用(即Combinator)
+        + Motivation: Line、Rectangle、Picture等Graphic对象的组合，仍然是Graphic对象
+        + Applicability 
+            + 想向用户提供组合的能力，并且允许用户统一的使用组合结果
+        + Participants
+            + Component => Graphic
+            + Leaf => Line、Rect、Text
+            + Composite => Picture，即包含子Component的Component
+            + Client
+        + Consequences
+            + 组合可以递归，任何用到基本对象的地方都可以使用组合对象，客户代码避免了选择等分支，新增加基本对象也可以无缝接入
+        + Known uses
+            + GUI
+            + AST中的Expr
+        + Related patterns
+            + Decorator可能被用在Composite中
+            + Iterator可以遍历Composite
+            + Visitor将分布在Composite的各个子类中的操作局部化(对操作开放，对类型封闭)
+    + Decorator(装饰)
+        + Intent: 动态的给对象添加功能，比派生子类更灵活
+        + Also known as: Wrapper
+        + Motivation: 动态的给对象添加功能；相比通过派生子类的方式来静态的添加功能，Decorator可以控制类型、顺序
+        + Applicability 
+            + 不影响其他对象的情况下，动态、透明的方式添加职责
+            + 某些正交的职责，如果通过子类的方式来组合，将导致组合爆炸
+        + Participants
+            + Component
+            + ConcreteComponent
+            + Decorator: 实现Component接口，并持有另一个Component指针
+            + ConcreteDecorator: 添加各种职责
+        + Consequences
+            + 比继承更灵活，甚至可以重复添加同一个特性
+        + Known uses
+            + Logger(扩展得更厉害一点就成了Combinator了(即Composite))
+            + Stream
+        + Related patterns
+            + vs Adapter: Decorator改变职责但不改变接口；Adapter改变接口但不改变职责
+            + vs Composite: Decorator可以看做蜕化的Composite。而且Decorator本身也完全没有对象聚合的意思
+            + vs Strategy: Decorator增加职责，但接口不变，提供一致的语义；而Strategy虽然接口不变，但语义变化
+    + Facade(外观)
+        + Indent: 为子系统中的一组接口提供一个高层接口，这个接口更容易使用
+        + Motivation: 一个常见的使子系统间通信和依赖最小化的办法，即使用一个外观对象
+        + Applicability 
+            + 各种模式的使用，使得产生各种更小的类，从而更可定制，但对于不需要定制的上层用户，需要一个简单的接口
+            + 引入Facade类使得子系统对客户不可见，从而可升级和移植
+            + 在层次系统中，为每个层次提供Facade类，简化子系统的依赖关系
+        + Participants
+            + Facade => Compiler
+            + Subsystem classes => Scanner、Parser、AST
+        + Consequences
+            + 对客户屏蔽了子系统组件类，使得客户依赖的类数量减少，同时接口也更简化
+            + 客户也可以绕过Facade类直接访问子系统类，从而得到定制能力
+        + Known uses
+            + Compiler
+            + Webkit
+        + Related patterns
+            + vs Mediator: 外观类用于沟通客户代码和子系统，子系统并不知道外观类的存在，子系统间的通信不经过外观类；中介者存在于子系统类之间，子系统类可能并不知道另一个类，而是只知道中介者
+    + Flyweight(享元)
+        + Intent: 运用共享技术有效的支持大量细粒度对象
+        + Motivation: 有些技术受益于对象化的抽象，但是这种简化实现代价很大，比如文本编辑器中的单个字符如果都支持字体颜色不同的话。通过将状态划分为外部状态和内部状态，并共享内部状态到flyweight池中的flyweight对象中，然后在上下文相关的外部状态被引用时，访问共享的flyweight状态并传入外部状态进行操作
+        + Applicability 
+            + 对象数量大，内存占用多，能够区别内部/外部状态，并且将内部状态共享的话，能够显著减少内存占用，同时内部状态不应该有标识符
+        + Participants
+            + Flyweight
+            + ConcreteFlyweight: 包含内部状态
+            + FlyweightFactory: Flyweight pool的角色，让get or create的动作透明化
+            + Client: 负责维护外部状态和访问Flyweight pool
+        + Consequences
+            + 会引入额外的时间开销，因此，仅当共享的内部状态够多时，才有价值。如果外部状态是通过内部状态计算出来的，空间效益最大化
+        + Known uses
+            + 文档编辑器中，将每个符号作为对象，而将Glyph等信息作为内部状态，只将位置作为外部状态
+            + GUI中的Layout，首先它是Strategy的应用，其次，它可以被实现为Flyweight
+            + String interning
+        + Related patterns
+            + 在Composite中，以Flyweight的方式实现叶节点
+            + 常用Flyweight实现State、Strategy
+    + Proxy(代理)
+        + Intent: 为其他对象提供一种代理以控制对对象的访问
+        + Motivation: LazyValue是一种Proxy的使用
+        + Applicability 
+            + Remote Proxy: 为对象在不同地址空间提供局部代表
+            + Virtual Proxy: LazyValue的使用就是Virtual proxy，意在控制对象创建的开销，在访问的时候才执行
+            + Protection Proxy: 为对象的访问权限
+            + Smart reference: 为指针访问附加操作，如引用计数
+        + Participants
+            + Subject
+            + RealSubject
+            + Proxy: 实现了Subject接口
+        + Consequences
+            + 在引用时附加操作，比如隐藏地址空间不同的事实，按需创建对象，附加内务处理包括Copy-on-write等
+        + Known uses
+            + 远程代理、延迟加载
+        + Related patterns
+            + vs Adapter: Proxy的输入输出接口相同，或者输出是输入接口的子集(Protection proxy)；而Adapter的输入输出接口不同
+            + vs Decorator: 某些种类的Proxy的确是Decorator，但一般Proxy不支持动态的添加/分离
++ Behavioral Patterns(行为模式)
+    + Chain of responsibility(责任链)
++ 总结
+    + Creational patterns
+        + Abstract factory
+            + 目的：将产品系列的创建抽象出来，提供切换整个系列而不改变客户代码的能力
+            + 例子：`IQueryResult result = Modules["Sqlite"]["Connection"].New().CreateQuery("select * from db")`, `IQueryResult result = Modules["Mysql"]["Connection"].New().CreateQuery("select * from db")`
+            + 场合： 框架或库
+        + Builder
+            + 目的：对于复杂的创建过程，抽象创建器，从而复用同一份创建代码，生成不同的产品
+            + 例子：`new JsonBuilder().BeginArray().Value(1).Value(2).EndArray().Result()`、`new BisonBuilder().BeginArray().Value(1).Value(2).EndArray().Result()`
+            + 场合：一个类的创建过程很复杂，如树/图的构建，或参数很多如GUI控件
+        + Factory method
+            + 目的：提供动态类型创建能力
+            + 例子：`ISet set = Module.GetType("HashSet").New()`、`ISet set = Module.GetType("OrderedSet").New()`
+        + Prototype
+            + 目的：通过状态(而非代码)来区分不同的模板。如果行为的不同，必须通过代码来区别，这往往意味着不同的类型；而如果仅由不同的数据状态，就能驱动行为，那仅需要相同类型的不同实例即可；前者是First class type，后者是Prototype
+            + 例子：`Human h = CharacterTemplates["Soldier"].Clone()`、`Human h = CharacterTemplates["Doctor"].Clone()`
+            + 场合：First class type的动态性仍不足以满足需要时，Prototype列表可运行时修改这一特性，可能正好满足需求；游戏引擎、Word/PPT中常见
+        + Singleton
+            + 目的: 唯一实例
+            + 例子：`Application.onExit = ()=>{println("Application exit");}`
+            + 场合：逻辑上应该避免多实例的情况，比如只有一个StringPool做intern
+    + Structural patterns
+        + Adapter
+            + 目的：适配接口(又叫Wrapper)
+            + 例子：`new InputStream(libc.stdin)`
+        + Bridge
+            + 目的：在抽象和实现之间，引入一个新的抽象-实现层，通过将原本的实现中大量重复代码，提取成implemention-independent代码，作为抽象中的代码复用。即，原来是`A1 - I2`，现在是`A1 - I1, A2- I2`，代码提取过后，两个类层次和接口都可以分别变化，典型的例子是，层次1大而深，但接口都很简单，而层次2小，接口比较复杂。
+            + 例子：`Window::DrawRect() { windowImpl->DrawLine(); ... windowImpl->DrawLine(); }`, `ResizeableWindow::Draw() { super.DrawRect(); }`, `WindowImpl::DrawLine() {}`, `MacWindowImpl::DrawLine() {}`
+            + 场合：实现代码中，如果不依赖具体实现的代码很多，那么可以将它们抽象出来，使得他们只依赖实现的抽象，这样的通过组合进行的层次刨分，更大程度的复用了代码
+        + Composite
+            + 目的：提供可组合语义，其实就是Combinator
+            + 例子：`Expr = Add(Const(1), Variable("x"))`
+            + 场合：概念本身递归、可组合；做DSL
+        + Decorator
+            + 目的：蜕化版的Composite，透明、动态的添加职责
+            + 例子：`new ZipInputStream(new FileStream("1.zip"))`
+            + 场合：可能有多个正交的概念需要组合，同时组合的顺序、次数也不限，此时用继承会导致类型爆炸
+        + Facade
+            + 目的：打包一组类对外提供简单的接口，在子系统类和客户代码之间，起到解耦和简化API的作用
+            + 例子：lua的那组c api
+            + 场合：提供简化的接口，或者出于减小层次子系统间依赖的考虑
+        + Flyweight
+            + 目的：大量对象时共享状态从而节省空间。注意要求能区分内部/外部状态
+            + 例子：String interning，树的叶节点
+            + 场合：空间压力大，重复数据多
+        + Proxy
+            + 目的：在引用对象的时候附加额外操作
+            + 例子：远程代理、延迟加载(LazyValue)
+            + 场合：需要控制对象访问时
+    + Behavioral Patterns
+        + Chain of responsibility
