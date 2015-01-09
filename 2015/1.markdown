@@ -417,7 +417,227 @@
             + vs Decorator: 某些种类的Proxy的确是Decorator，但一般Proxy不支持动态的添加/分离
 + Behavioral Patterns(行为模式)
     + Chain of responsibility(责任链)
-+ 总结
+        + Intent: 使得多个对象都有机会处理请求，从而避免发送者和接受者的耦合；通过将对象组织成一个链，然后沿链传播请求，直到被处理
+        + Motivation: GUI中的消息传递机制
+        + Applicability 
+            + 允许多个接受者
+            + 发送者无需显示指定接受者
+            + 接受者集合可运行时变更
+        + Participants
+            + Handler
+            + ConcreteHandler
+            + Client
+        + Consequences
+            + 降低耦合
+            + 增强了指定职责的灵活性
+            + 不保证被接收
+        + Known uses
+            + GUI的输入事件响应
+        + Related patterns
+            + 相比链式传播，也可以与Composite合用，从子控件传递到父控件
+    + Command(命令)
+        + Intent: 将行为和参数封装成请求对象，从而允许将请求用于队列、日志，以及支持undo操作
+        + Motivation: 将菜单的响应封装成一个个Command对象，在点击菜单的时候执行命令
+        + Applicability 
+            + 需要Callback、Closure的场合，老的OO语言可以用Command模式
+            + Command对象与请求对象的生命期可以不同，甚至地址空间也可以不同，可以被序列化
+            + 允许Command在Do的时候备份状态，那么，就能实现Undo
+            + 可以用来做修改日志，从而实现Durability
+        + Participants
+            + Command
+            + ConcreteCommand
+            + Client
+            + Inoker: 请求发起者
+            + Receiver: ConcreteCommand用来实现动作的对象
+        + Consequences
+            + 调用者不再需要知道响应的具体实现
+            + 可以将多个Command利用Composite组合起来，从而实现MacroCommand等超级命令
+            + 增加Command无需改变任何已有类
+        + Known uses
+            + 支持Do/Undo的Command
+        + Related patterns
+            + 和Composite一起实现宏命令
+            + 和Memento一起实现可撤销命令
+    + Interpreter(解释器)
+        + Intent: 对给定语言的表示，解释执行
+        + Motivation: 如果一个特定类型的问题发生频率够高，就应该考虑定制一款DSL，然后通过解释器来执行。典型的例子是正则表达式
+        + Applicability 
+            + DSL
+            + 抽象解释(Abstract interpretation)
+        + Participants
+            + AbstractExpression
+            + TerminalExpression: 叶子节点
+            + NonterminalExpressin: 中间节点
+            + Context
+            + Client
+        + Consequences
+            + 易于改变和扩展。一般还和Parser搭配
+            + 易于实现。相比编译器来说..
+            + 语义动作可以多种多样，不一定是求值，也可以是序列化等。如果语义动作的多样性是主题，考虑Visitor或Builder
+        + Known uses
+            + 解释器、编译器
+        + Related patterns
+            + Composite模式用来描述要被解释的对象
+            + Flyweight表示叶子节点
+            + Iterator可以线性的遍历树
+            + Visitor可以将语法树中的行为局部化
+    + Iterator(迭代器)
+        + Intent: 提供一个方法顺序的访问聚合对象的各个元素，而又不暴露对象的具体表示
+        + Also known as: Cursor
+        + Motivation: 容器遍历
+        + Applicability 
+            + 不想暴露聚合的表示，同时提供遍历的能力。另一种方法是内部迭代器(Internal iterator，即接收lambda的foreach)
+            + 支持多次遍历
+            + 为不同结构提供抽象迭代器。比如`Set<Int>`、`Vector<Int>`都返回`Iterator<Int>`
+        + Participants
+            + Iterator
+            + ConcreteIterator
+            + Aggregate 
+            + ConcreteAggregate: 具体的容器
+        + Consequences
+            + 通过不同的ConcreteIterator，实现对同一个ConcreteAggregate的不同算法的遍历
+            + 遍历的中间状态保存在Iterator中，从而允许同时多趟遍历
+        + Known uses
+            + 各种容器库
+        + Related patterns
+            + Iterator常被用在Composite对象上
+            + 通过Factory method来创建具体的迭代器子类
+    + Mediator(中介者)
+        + Intent: 通过中介者来封装对象的交互，减少对象间的直接引用，从而降低耦合
+        + Motivation: OO倾向于分割大量的类从而提高复用性，但是，一个类知道的类越多，它的可复用性就越低。于是可以通过中介者来隔离
+        + Applicability 
+            + 一组对象定义良好，但是通信方式复杂，产生的依赖关系混乱难以管理
+            + 一个对象引用其他对象并直接与他们通信，导致难以复用该对象
+        + Participants
+            + Mediator
+            + ConcreteMediator
+            + Colleague class
+        + Consequences
+            + 使得各个Colleague解耦
+            + 简化了对象间的协议
+            + 控制集中化
+        + Known uses
+        + Related patterns
+            + vs Facade: Facade和其抽象的子系统组件间，是单向的关系，子系统组件不知道Facade存在；而Mediator是双向的
+            + Colleague可以通过Observer与Mediator通信
+    + Memento(备忘录)
+        + Intent: 在不破坏封装的前提下，捕获对象的内部状态，然后在将来的某个时刻恢复状态
+        + Motivation: 允许提取状态，用于取消操作或错误恢复(如果不提供专门的接口的话，Clone、Serialize/Deserailize都能做到...)
+        + Applicability 
+            + 提取的状态应该只是抽象的，不暴露内部表示
+        + Participants
+            + Memento: 存储对象的内部状态
+            + Originator: 允许GetMemento返回内部状态的抽象，以及SetMemento应用状态抽象
+            + Caretaker: Originator返回的Memento的保管者
+        + Consequences
+            + 没有破坏封装
+            + 可能代价高昂
+        + Known uses
+        + Related patterns
+            + Command用Memento实现Undo
+            + 支持Memento的迭代器可以多路迭代
+    + Observer(观察者)
+        + Intent: 定义一种一对多的关系，当一个对象改变的时候，所有依赖它的对象都得到通知
+        + Also known as: Dependents、Publish/Subscribe
+        + Motivation: 将类拆分细化的一个副作用是，要维护对象间的一致性更困难，而我们又不希望让对象紧耦合，所以Observer是个好办法
+        + Applicability 
+            + 存在依赖关系的多个对象，希望他们能独立的变化和复用
+            + 当一个对象要通知它自身的变化，但不知道有多少个关注者
+        + Participants
+            + Subject: 被观察方
+            + ConcreteSubject
+            + Observer
+            + ConcreteObserver
+        + Consequences
+            + Subject和Observer间的低耦合
+            + 支持广播
+        + Known uses
+            + MVC
+        + Related patterns
+    + State(状态)
+        + Intent: 允许状态改变的同时，修改自身行为，看起来像是改变了类
+        + Motivation: TCPConnection对象的状态维护
+        + Applicability 
+            + 允许运行时根据状态改变行为
+            + 状态机。状态机的一种实现，是通过if/switch，基于当前状态然后进行内层translate；State pattern，是将不同的状态枚举，拆分成不同的子类，然后translate动作在子类内部分派，从而允许状态的扩展、降低耦合
+        + Participants
+            + Context: 状态持有者，将事件委托给State，可能同时会把自身的引用传给State
+            + State: 处理事件的抽象接口
+            + ConcreteState
+        + Consequences
+            + 将特定状态的行为局部化
+            + 突出状态的切换：状态切换是Context中唯一的State赋值
+            + 由于State在Context中被表示成单一变量，也避免了同时维护多变量可能出现的状态不一致问题
+        + Known uses
+            + 网络协议、游戏等各种状态机
+        + Related patterns
+            + 如果具体状态无数据字段，那么可以通过Flyweight或者Singleton共享
+    + Strategy(策略)
+        + Intent: 封装算法，使得算法可以独立于客户变化
+        + Also known as: Policy
+        + Motivation: 提供不同的算法供运行时选择
+        + Applicability 
+            + 需要不同的算法在空间/时间中权衡，而尽量不影响客户代码
+            + 一个类定义了多种行为，通过if/else来区别，可以尝试替换成Strategy
+        + Participants
+            + Strategy
+            + ConcreteStrategy
+            + Context: 将客户请求转发给Strategy，同时可能需要将自身的引用传入
+        + Consequences
+            + 可以将不同算法的公共部分，提取到Strategy的较低层次，从而复用
+            + 相比通过在Template的子类中重写算法，Strategy很像是一个Bridge
+            + 允许运行时算法的选择
+        + Known uses
+            + Compiler中，用Strategy定义Register allocation、Instructin scheduling方案
+            + GUI中不同的Layout算法
+            + 不同的电路布局算法
+        + Related patterns
+            + Flyweight、Singleton可以用于实现没有实例字段的Strategy
+            + vs State: State强调自动的状态迁移(由输入驱动)，而Strategy一般是主动的算法选择
+    + Template method(模板方法)
+        + Intent: 定义一个算法的主要框架，将其中一些决策延迟到子类中，从而允许不动骨架就重写特定步骤
+        + Motivation: 各种框架
+        + Applicability 
+            + 一次性实现算法不变的部分，而将可变的行为留给子类
+            + 提取子类中公共的部分到父类
+        + Participants
+            + AbstractClass
+            + ConcreteClass
+        + Consequences
+            + 是一种代码复用技术，在类库中尤其重要
+            + 是一种Inverse of control，又叫好莱坞法则“别找我们，我们找你”
+            + Hook operations
+        + Known uses
+            + 任何一个抽象类都是为了使用Template pattern才定义的
+        + Related patterns
+            + Factory method常出现在Template中
+            + vs Strategy: Template使用继承来改变定制算法的一部分，而Strategy通过委托来改变整个算法
+    + Visitor(访问者)
+        + Intent: 表示作用于某对象结构中各元素的操作，使得无需修改元素即可扩展新操作
+        + Motivation: 编译器中对AST执行GenerateCode、PrettyPrint、TypeCheck等操作，以及可以扩展任意多个新操作而无需修改AST子类
+        + Applicability 
+            + 对象结构中有各种类型，你想针对不同的子类派发专门的操作
+            + 需要对类型执行各种不相关操作，你不想让这些操作污染类型
+            + 对象结构的元素子类很少变，但是却经常定义新操作。如果元素类型经常变化，还是直接在类型中定义操作更好
+        + Participants
+            + Visitor
+            + ConcreteVisitor: 定义具体的操作
+            + Element
+            + ConcreteElement
+        + Consequences
+            + 易于扩展新操作
+            + 针对每个类型的操作被局部化
+            + 添加新的ConcreteElement很困难，需要修改所有的ConcreteVisitor
+            + 可以在Visitor中累积状态，而不像Pattern matching需要在递归参数中累积状态
+            + 会破坏ConcreteElement的封装
+        + Known uses
+            + 编译器：AST、ASTVisitor
+            + 游戏：ScheneNode、ScheneNodeVisitor
+        + Related patterns
+            + Visitor一般用来对Composite对象进行操作
+            + Visitor也可以代替Interpter用于解释执行
+
++ 总结 
     + Creational patterns
         + Abstract factory
             + 目的：将产品系列的创建抽象出来，提供切换整个系列而不改变客户代码的能力
@@ -468,3 +688,71 @@
             + 场合：需要控制对象访问时
     + Behavioral Patterns
         + Chain of responsibility
+            + 目的：降低事件触发方和处理方的耦合，同时允许多个处理者以任何方式组合
+            + 例子：`UIElement->OnKeyDown(keyEvent)`
+            + 场合：需要接收方可定制、多播的时候
+        + Command
+            + 目的：封装行为和参数，使得请求方无需依赖具体的响应方
+            + 例子: `Commands["Copy"]()`
+            + 场合：各种需要Callback、Closure的地方。同时也很容易支持Undo操作
+        + Interpreter
+            + 目的：对于重复出现问题，定制DSL，然后解释语义
+            + 例子：正则表达式
+            + 场合：解释器、抽象解释
+        + Iterator
+            + 目的：在不暴露聚合的内部表示的情况下，提供统一的遍历接口
+            + 例子：各种容器
+            + 场合：概念本身就是`Iterable<T>`的
+        + Medaitor
+            + 目的：简化子系统中类的依赖关系，减少类的依赖项，从而提高可复用度
+            + 场合：类的依赖关系过于复杂的时候
+        + Memento
+            + 目的：允许剥离和应用状态，从而支持回滚
+            + 例子：Clone、Serialize、Copy assignment，都相当于实现了Memento语义，只是粒度较大
+            + 场合：想要支持回滚的时候
+        + Observer
+            + 目的：以松耦合的方式，保持对象间的状态一致性，同时允许多播
+            + 例子：Delegate等发布/订阅系统
+        + State
+            + 目的：将状态机的状态枚举，拆分成独立的子类，从而使得可扩展，且避免出现状态不一致的问题(因为在Context中只有单一State变量，状态切换必然表现为变量赋值)
+            + 例子：各种状态机
+            + 场合：简单的两层if/switch分派已经过度复杂，且状态一致性难以保证的时候
+        + Strategy
+            + 目的：将各种可选的算法封装抽象，从而允许做不同的权衡
+            + 例子：STL容器的Hash、Equal算法
+            + 场合：多个方案各有利弊的时候
+        + Template method
+            + 目的：基类构造算法的主题，子类定制算法的某个部分
+            + 例子：任何abstract class的声明，都是为了以继承的方式复用代码
+            + 场合：通过继承复用代码
+        + Visitor
+            + 目的：能够对一组Composite对象施加操作，而不需要修改Element子类。对操作开放，对类型封闭
+            + 例子：各种Composite访问器
+            + 场合：Element子类很少变化，而操作可能任意追加的时候；典型的情况是语言向用户开放AST访问能力，显然这里的AST不会变化，而Visitor可能多种多样
++ Wiki
+    + Creational pattern: Creational patterns are ones that create objects for you, rather than having you instantiate objects directly. This gives your program more flexibility in deciding which objects need to be created for a given case.
+        + Abstract Factory: groups object factories that have a common theme.
+        + Builder constructs: complex objects by separating construction and representation.
+        + Factory Method: creates objects without specifying the exact class to create.
+        + Prototype: creates objects by cloning an existing object.
+        + Singleton: restricts object creation for a class to only one instance.
+    + Structural pattern: These concern class and object composition. They use inheritance to compose interfaces and define ways to compose objects to obtain new functionality.
+        + Adapter: allows classes with incompatible interfaces to work together by wrapping its own interface around that of an already existing class.
+        + Bridge: decouples an abstraction from its implementation so that the two can vary independently.
+        + Composite: composes zero-or-more similar objects so that they can be manipulated as one object.
+        + Decorator: dynamically adds/overrides behaviour in an existing method of an object.
+        + Facade: provides a simplified interface to a large body of code.
+        + Flyweight: reduces the cost of creating and manipulating a large number of similar objects.
+        + Proxy: provides a placeholder for another object to control access, reduce cost, and reduce complexity.
+    + Behavioral pattern: Most of these design patterns are specifically concerned with communication between objects.
+        + Chain of responsibility: delegates commands to a chain of processing objects.
+        + Command: creates objects which encapsulate actions and parameters.
+        + Interpreter: implements a specialized language.
+        + Iterator: accesses the elements of an object sequentially without exposing its underlying representation.
+        + Mediator: allows loose coupling between classes by being the only class that has detailed knowledge of their methods.
+        + Memento: provides the ability to restore an object to its previous state (undo).
+        + Observer: is a publish/subscribe pattern which allows a number of observer objects to see an event.
+        + State: allows an object to alter its behavior when its internal state changes.
+        + Strategy: allows one of a family of algorithms to be selected on-the-fly at runtime.
+        + Template method: defines the skeleton of an algorithm as an abstract class, allowing its subclasses to provide concrete behavior.
+        + Visitor: separates an algorithm from an object structure by moving the hierarchy of methods into one object.
