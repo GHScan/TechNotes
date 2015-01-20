@@ -756,3 +756,36 @@
         + Strategy: allows one of a family of algorithms to be selected on-the-fly at runtime.
         + Template method: defines the skeleton of an algorithm as an abstract class, allowing its subclasses to provide concrete behavior.
         + Visitor: separates an algorithm from an object structure by moving the hierarchy of methods into one object.
+
+#### 20. Polymorphism
++ 概念：函数的行为，因参数个数、类型的不同而不同
++ 三种
+    + Ad-hoc polymorphism
+        + 形参类型是一个有限集合，针对形参类型的每个组合，都可以提供单独的实现(函数体)
+        + 例子:
+            + Static polymorphism: function overloading、operator overloading、template specialization、typeclass
+            + Dynamic polymorphism: 各种语言中通过注册类型tuple和处理函数，来进行multiple dispatch，比如碰撞处理
+    + Parametric polymorphism
+        + 形参类型带类型参数，输出具体类型取决于实参类型。支持的类型集合不限
+        + 例子：
+            + Static polymorphism: OO语言的Generic programming; FP的Polymorphism method
+            + Dynamic polymorphism: 动态语言的Duck typing，如Scheme的map类型其实是`(list of A) x (A->B) => list of B`
+    + Subtyping
+        + 通过运行时子类型来定义操作
+            + OO语言中，Subtyping被叫做Polymorphism
+            + 常见OO语言是Dynamic polymorphism(late-binding)，且是Single dispatch; CLOS支持Multiple dispatch
+
+#### 20. Parser的一点补充
++ 一般一个Parser可以被定义为`String -> (Success value String | Failure)`，即，将输入的串，Parse过后，得到Failure，或者Success，这里的Success，是Parse值和剩余串的Pair。如果输出只有一个，则是确定性Parser(Deterministic Parser)，如果输出是一个流，则是非确定性Parser(Nondeterministic Parser)
++ CFG(Context-free grammar)
+    + Deterministic CFG
+        + LL(k): 基于limited lookahead的高性能Predicative parser。k越大，语言越大。
+        + LR(k): 基于Shift-reduce的Bottom-up parser，高性能。这里的k越大，grammar的灵活性越大，但是描述的CFL都是相同的。
+    + General CFG
+        + 简单的parse方案是Top-down backtracking parser，非确定性的(因为每个非终结符有多个产生式，导致多个输出；一个符号可能多个输出，进而导致每个产生式也有多个parse结果)；直接的Backtracing parser由于Eponential time的渐进复杂度，开销极大，但是可以通过LL(k)的Predicative信息，来对备选Production进行剪枝，进而加速；但是由于非确定性，不适合用Memoizing手法做成Packrat parser
++ PEG(Parsing expression grammar)
+    + PEG是对简单Recursive descent parser的抽象，相比CFG，它使用First choice操作符而非Alternation，即直接返回第1个parse成功的产生式、抛弃后续可能的方案，来得到确定性parse的行为(因此必然无歧义，哪怕结果不“正确”)。由于PEG的First choice，实际上是通过贪心策略来消除歧义的，因此，要使得消除歧义的选择是正确的，需要精心安排产生式顺序，同时好好利用PEG提供的前向断言的无限lookahead能力。
+    + 由于文法上选择第1个成功parse的产生式，因此LL(k)、LR(k)那种基于任意选择的算法无法使用
+    + 因为只能进行Backtracking，PEG是比LL(k)、LR(k)低效的，但相比标准LL Backtracking parser的非确定性行为，PEG又是确定性的，所以更高效(尽管可能不正确...)
+    + 由于PEG需要在多个产生式中查找第一个成功项，这里有backtracking行为；且PEG要求无限lookahead能力；所以经常的，PEG用Packrat parser实现
+
