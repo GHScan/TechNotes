@@ -788,4 +788,130 @@
     + 由于文法上选择第1个成功parse的产生式，因此LL(k)、LR(k)那种基于任意选择的算法无法使用
     + 因为只能进行Backtracking，PEG是比LL(k)、LR(k)低效的，但相比标准LL Backtracking parser的非确定性行为，PEG又是确定性的，所以更高效(尽管可能不正确...)
     + 由于PEG需要在多个产生式中查找第一个成功项，这里有backtracking行为；且PEG要求无限lookahead能力；所以经常的，PEG用Packrat parser实现
+        + Packrat parser
+            + 要求：确定性Parser
+            + 优点
+                + 避免了exponential time，复杂度是len(input) * k
+                + 语法灵活性(flexibility)，如向前看、前向断言、后向断言
+                + 支持左递归
+            + 缺点
+                  + 空间开销太大，len(input) * k
 
+#### 20. Engineering a compiler. 第4章，上下文相关分析
++ 简介
+    + Attribute grammars are a functional formalism for specifying context-sensitive computation
+        + 是一种经常使用的原理性自动化方法
+    + Ad hoc syntax-directed translation provides a simple framework where the compileer writer can hang arbitrary code snippets to perfom theses checks
+        + 被广泛实际运用的技术
+    + 一般来说，上下文相关分析(context-sensitive analysis)可以与语法分析并行不悖的进行，也可以在语法分析后用专门的pass来进行(遍历IR)
+    + 为积累进一步转换所需要的上下文知识，编译器需要一些方法从语法之外考查程序某个方面的抽象，如类型系统、Storage map、Control-flow graph、Call graph
+    + C89那种声明语句前置的做法，可以通过在Grammar中提供专门的Declrations非终结符实现；但要确保变量先声明再使用，仍然需要上下文相关分析，需要引入符号表(这里的先声明再使用的语义分析，即使强上上下文相关语言也搞不定，因为语法是基于syntax category的，得不到变量名，又不可能去枚举变量名(空间太大))
++ 类型系统(Type system)
+    + 大多数语言都将一组性质关联到每个值，我们将这组性质叫做类型
+    + 目标(The purpose of type system): 安全性、表达力、效率
+        + 确保运行时类型安全(Ensuring runtime safety)
+            + 类型系统应该确保程序是良性的(well-behavied)：即，任何病态(ill-formed)的程序都能在触发运行时错误之前被编译器(compile time checking)或运行时系统(runtime checking)识别出来
+                + 比如将整数识别成浮点(无类型的汇编就可能将装有整数的地址中的值加载到浮点寄存器中)
+                + 比如将整数、浮点表达式用作分支判断
+            + 跟安全相关的概念是强类型/弱类型
+                + Strongly typed: 每个表达式都能分配一个无歧义的类型
+                + Weekly typed: 只能对多数表达式分配无歧义类型
+                + Untyped:
+                    + 如汇编和BCPL(所有的值都是Cell)
+            + 跟类型的binding time相关的概念是静态类型、动态类型
+                + Statically typed: 每个表达式都能在编译期确定类型
+                + Dynamically typed: 某些表达式只能在运行时确定类型
+        + 提高表达力(Improving expressiveness)
+            + 能够利用类型，提供多态，从而以相同的表现形式提供不同的语义，如运算符重载。事实证明程序员很擅长理解多态
+        + 生成更优的代码(Generate better code)
+            + 如果类型不能在编译期绑定，那么，就必须在运行时的值当中保存type tag，进行runtime type checking，付出额外的时间效率和空间效率(保存type tag)
+        + 类型检查(Type checking) 
+            + 编译器/运行时系统必须为表达式分配类型，并验证这些类型在上下文中是否合法
+            + 实际上Type checking这个概念，处理包含检测类型错误的任务外，还包括进行类型推导(Type inference)
+            + 常见语言的做法：
+                + C/C++: 静态类型，弱类型，无运行时类型检查
+                + Java/C#: 静态类型，强类型，运行时类型检查
+                + Javascript: 动态类型，强类型，运行时类型检查
+    + 组件(Components of a type system)
+        + 基本类型(Base types/Builtin types)
+            + 数字(Numbers)
+                + C、C#的整数反映了硬件实现，比如大小、有/无符号、短/长浮点数
+                + C、Fortran用相对术语来描述类型大小, Java使用绝对位长来描述大小
+                + Lisp将List作为Built-in类型
+                + Scheme将类型长度保留给实现，但要求实现精确计算的API
+            + 字符(Character)
+                + ASCII，Unicode，同时提供字典序
+            + 布尔(Boolean)
+                + used to determine the flow of control
+        + 组合类型(Compound and constructed types)(Aggregate types)
+            + 数组(Arrays)
+                + 有的语言将数组长度作为类型的一部分(如C/C++)，而其他则将长度作为运行时属性(如C#、Java)，前者能发现一些兼容错误
+                + Fortran、PL/I、APL提供数组的的向量运算
+            + 串(Strings)
+                + 有位串和字符串等
+                + 串不同于数组的地方在于，一般串要求高效的取子串、连接以及提供字典序等
+            + 枚举(Enumerated types)
+            + 结构和变体(Structures/Records and variants)
+                + Structure是类型的连接, Variant是类型的并(一般实现为tagged union)，前者在IP中常见，后者在FP中作为ADT出现
+            + 指针(Points)
+                + 某些语言的指针创建，通过在指针地址上进行多态的new(polymorphism procedure)；java通过显示的new Class；而C是malloc过后显示的转换类型
+                + 通过算术运算和强制转换来创建指针，弱化了编译器/运行时系统的类型检查能力
+        + 类型等价性(Type equivalence)
+            + 分类
+                + 名称等价性(Name equivalence)
+                    + 一般名称等价性都可以将类型实现为一个整数，并提供经由整数查找类型信息的能力；判等时，直接进行整数的位模式比较
+                + 结构等价性(Structural equivalence)
+                    + 将类型实现为树(因为允许循环引用，实际上是图)，Base types是叶节点，而Compound types是中间节点；判等时，需要进行树的递归比较
+            + 名称等价性的缺点在于名冲突(可以引入名空间)，结构等价性缺点是结构相同的类型在逻辑上可能要求不同、不兼容，实践中，可能结合两者
+        + 为表达式推导类型(Inferring types for expression)
+            + 最简单的形式是，表达式树的每个叶子节点如Literal、Identifier都有类型，函数也没有多态性，此时可以通过一趟语法树的后续遍历得到类型
+        + 过程间的类型推导(Interprocedure aspects of type inference)
+            + 过程间类型分析，可能要求声明函数的原型(function prototype)，从而得到类型签名(type signature)，如C语言
+            + 也可能通过其他手法将类型检查延迟到编译期、连接时、运行时，如Java
++ 属性文法框架(The attribute grammar framework)
+    + 简介
+        + 也叫做`attributed context-free grammar`，将一组属性关联到文法符号上，并定义计算属性的规则
+        + 根据规则中计算属性的顺序，表现为语法树的top-down顺序计算的属性，称为`inherited attribute`，表现为bottom-up计算顺序的，称为`synthesized attribute`
+        + 属性文法并不规定属性计算的严格次序
+    + 求值方法
+        + 动态方法(Dynamic methods): Knuth提出，使用就绪队列，每个属性求值后，判断被依赖属性能否求值...另外的方案，可以建立属性依赖关系图，根据拓扑顺序求值
+        + 无关方法(Oblivious methods): 不动点，反复多趟执行直到所有的属性都被求值
+        + 基于规则的方法(Rule based methods): 通过离线的基于规则的静态分析，得到属性的求值顺序
+    + 环
+        + 出现环将导致失败, 处理方法：
+            + 为每个属性分配默认值，从而打破环的无穷递归
+            + 避免出现环
+                + 只使用综合属性和常量属性，可以完全消除有环依赖
+                    + 只有synthesized attribute的文法叫做`S-attributed grammar`
+                + 使用强无环属性文法(strongly noncircular attribute grammar)
+    + 例子 
+        + 简单类型推导
+        + 简单的执行时间估算
+    + 缺陷
+        + 由于属性是纯函数式的，对于非局部信息，需要在所有的规则中传递(copy rules)，导致规则复杂化
+        + 由于没有规定属性求值时机，一个规则的多个步骤的执行可能有很长的周期，导致内存不能高效回收
+        + 需要实例化文法符号节点，以作为属性的容器
+    + 其实以上缺陷都可以用一个中央数据库来改进，但那将打破属性文法框架，演变成Ad-hoc syntac-directed translation...
++ Ad-hoc syntax-directed translation
+    + 简介
+        + 为每个产生式关联代码片段，由Parser在归约产生式时执行
+        + 相比属性文法的两个简化
+            + 每个文法符号只关联1个值
+            + 值的流动方向只有1个，即从叶节点到根节点。对应S-attributed grammar
+    + 实现
+        + 值的管理: Table driven parser可以维护一个值的栈
+        + 值的引用：Parser combiantor那样通过参数，后者yacc那样通过`$$`和`$i`
+        + 其他位置的代码片段
+            + 产生式中间的代码：增加新的文法符号，并插入；在归约该符号时执行代码
+            + 移入时的代码：为Scanner识别每个token时绑定代码
+    + 例子
+        + 估计执行时间
+        + 简单类型推导
+        + 建立抽象语法树
+        + 生成目标码序列
++ 高级主题
+    + 类型系统中更难的问题
+        + 类型一致用法和固定函数类型: 函数没有多态性，因此，跑不动点算法，就能进行类型推导
+        + 类型一致用法和未知函数类型：函数具有多态性(Ad-hoc多态和参数化多态)，这里的Ad-hoc多态意味着参数类型有几个备选值，参数化多态意味着引入类型方程；进行类型推导需要解方程，因此需要合一化算法(unification)
+        + 类型的动态改变：可以通过在每个赋值点进行重命名，从而固定类型(尽管类型恐怕仍然需要运行时才能推导)；重命名后，涉及控制流的汇合点，需要面对类似SSA中的Phi函数的问题
+            + 动态语言的类型推导(哪怕是运行时的)，使得check elimination和check motion成为可能
