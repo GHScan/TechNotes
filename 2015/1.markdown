@@ -783,19 +783,23 @@
         + LR(k): 基于Shift-reduce的Bottom-up parser，高性能。这里的k越大，grammar的灵活性越大，但是描述的CFL都是相同的。
     + General CFG
         + 简单的parse方案是Top-down backtracking parser，非确定性的(因为每个非终结符有多个产生式，导致多个输出；一个符号可能多个输出，进而导致每个产生式也有多个parse结果)；直接的Backtracing parser由于Eponential time的渐进复杂度，开销极大，但是可以通过LL(k)的Predicative信息，来对备选Production进行剪枝，进而加速；但是由于非确定性，不适合用Memoizing手法做成Packrat parser
+        + 相比LLBacktracking可以利用LL预测信息来优化非确定性搜索，非确定性的LR算法即GLR，也可以在非确定性搜索中利用LR的Action/Goto表来优化，两者都可以完全搜索，且效率不错
 + PEG(Parsing expression grammar)
     + PEG是对简单Recursive descent parser的抽象，相比CFG，它使用First choice操作符而非Alternation，即直接返回第1个parse成功的产生式、抛弃后续可能的方案，来得到确定性parse的行为(因此必然无歧义，哪怕结果不“正确”)。由于PEG的First choice，实际上是通过贪心策略来消除歧义的，因此，要使得消除歧义的选择是正确的，需要精心安排产生式顺序，同时好好利用PEG提供的前向断言的无限lookahead能力。
     + 由于文法上选择第1个成功parse的产生式，因此LL(k)、LR(k)那种基于任意选择的算法无法使用
-    + 因为只能进行Backtracking，PEG是比LL(k)、LR(k)低效的，但相比标准LL Backtracking parser的非确定性行为，PEG又是确定性的，所以更高效(尽管可能不正确...)
+    + 因为只能进行Backtracking，PEG是比LL(k)、LR(k)低效的，如果和非确定性的LLBacktracking parser相比的话，PEG是确定性的，这方面有性能优势，但是LLBacktracking可以利用LL的预测信息，于是PEG只能利用Packrat来弥补了
+        + 关于Error recovery
+            + LL(k)、LR(k)这种确定性parser，发现错误的时候，是输入真的非法，因此记录错误信息，并进行错误恢复
+            + LLBacktracking parser、PEG Parser这种会进行Backtracking的Parser，发现错误的时候，并不一定是输入非法，因此，它们不会进行错误恢复，而是尝试其他路径
     + 由于PEG需要在多个产生式中查找第一个成功项，这里有backtracking行为；且PEG要求无限lookahead能力；所以经常的，PEG用Packrat parser实现
         + Packrat parser
             + 要求：确定性Parser
             + 优点
                 + 避免了exponential time，复杂度是len(input) * k
-                + 语法灵活性(flexibility)，如向前看、前向断言、后向断言
-                + 支持左递归
+                + 语法灵活性(flexibility)，如向前看、前向否定、后向断言
+                + 允许左递归(特殊算法)
             + 缺点
-                  + 空间开销太大，len(input) * k
+                + 空间开销太大，len(input) * k
 
 #### 20. Engineering a compiler. 第4章，上下文相关分析
 + 简介
