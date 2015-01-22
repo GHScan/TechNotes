@@ -938,6 +938,7 @@
     + 通过将闭包实现为函数+环境链的方式，在不支持闭包的host语言中实现闭包
 + Lambda lifting
     + 增加额外参数、并在compile time-binding的调用点显示传递参数，以这种方式改写lambda移除free variable，最后将lambda改写成普通全局函数，使得不需要创建真正的closure对象；对于会作为first class function传值的lambda，仍然只能创建闭包对象(如果host语言不支持闭包，那么得进行closure conversion)
+    + 函数内的nested function，如果不用做first class value的话，是非常好的lambda lifting对象，Scala就是这么做的
 + Tail-call optimization with trampolining
     + 如果解释器的host语言或者虚拟机不支持尾调用优化，为了实现包含尾递归的语言，需要对语言进行trampolining的变换
 + 函数式语言处理的一个可能步骤
