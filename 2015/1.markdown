@@ -919,3 +919,40 @@
         + 类型一致用法和未知函数类型：函数具有多态性(Ad-hoc多态和参数化多态)，这里的Ad-hoc多态意味着参数类型有几个备选值，参数化多态意味着引入类型方程；进行类型推导需要解方程，因此需要合一化算法(unification)
         + 类型的动态改变：可以通过在每个赋值点进行重命名，从而固定类型(尽管类型恐怕仍然需要运行时才能推导)；重命名后，涉及控制流的汇合点，需要面对类似SSA中的Phi函数的问题
             + 动态语言的类型推导(哪怕是运行时的)，使得check elimination和check motion成为可能
+
+#### 22. 杂项
++ ANF(Administrative normal form)变换
+    + 所有的操作符、调用，通过变换使得他们的实参都是原子表达式(atomic expression)，方法是利用let来绑定复合表达式。如`((f x) (g x))`被变换成`(let ([v1 (f x)]) (let ([v2 (g x)]) (v1 v2)))`
+    + 这里的操作符包括if、set等
+    + 变换算法类似CPS变换
+    + 变换结果，是一个let序列，实际上基本等价于汇编序列了，每个let相当于计算值并装在到寄存器，而ANF变换的目的是保证汇编运算的操作数是寄存器或立即数
++ CEK、CESK Interpter(Control、Environment、Store、Continuation)
+    + CESK分别表示表达式(或program counter)、名字到地址的表、地址到值的表、以及计算结果输出的目的地；这4个元素组成了解释器的一个状态，解释器主循环通过step状态得到最终结果
+    + CESK实际上是一个CPS解释器，相比递归CPS解释器而言，CESK是逐步推进状态的，这使得它不需要host语言支持尾递归，通过维护一个状态列表还能进行非确定性计算
+    + 优点
+        + 支持First class closure，进而允许Exception、Generator、Coroutine等一系列Nonlocal control-flow
+        + 解释器的当前状态被表示成一个函数式结构的4元素结构，允许逐步推进、允许并行维护多个状态来支持非确定性计算、不要求host language支持尾递归
+        + 有利于制作Debugger支持逐步调试
+        + 有利于静态分析
++ Closure conversion
+    + 通过将闭包实现为函数+环境链的方式，在不支持闭包的host语言中实现闭包
++ Lambda lifting
+    + 增加额外参数、并在compile time-binding的调用点显示传递参数，以这种方式改写lambda移除free variable，最后将lambda改写成普通全局函数，使得不需要创建真正的closure对象；对于会作为first class function传值的lambda，仍然只能创建闭包对象(如果host语言不支持闭包，那么得进行closure conversion)
++ Tail-call optimization with trampolining
+    + 如果解释器的host语言或者虚拟机不支持尾调用优化，为了实现包含尾递归的语言，需要对语言进行trampolining的变换
++ 函数式语言处理的一个可能步骤
+    + 词法分析、语法分析、语义分析得到Annotated AST 
+    + desugaring去掉语言的各种语法糖得到core language AST
+    + 解释/编译
+        + CESK模板解释器
+        + G-Machine
+        + Lambda lifting、Closure conversion编译到C
+        + ANF变换/CPS变换后编译到汇编
++ 解释器优化
+    1. I argue that first, you should try an interpreter for your language.
+    2. If that's not fast enough, try an SICP-style optimizing interpreter.
+    3. If that's not good enough, try compiling to Java.
+    4. If that's still not fast enough, try compiling to C.
+    5. If that's still too slow, try continuation-passing-style compilation to assembly.
+    6. If you need more speed, start doing basic compiler optimizations.
+    7. If you're still out of luck, start doing static-analysis-driven compiler optimizations.
