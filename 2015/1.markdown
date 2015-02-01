@@ -957,3 +957,9 @@
     5. If that's still too slow, try continuation-passing-style compilation to assembly.
     6. If you need more speed, start doing basic compiler optimizations.
     7. If you're still out of luck, start doing static-analysis-driven compiler optimizations.
+
+#### 28. 杂项
++ 可以用C++模板实现编译期的Lisp，包括List相关操作Map、Filter、Reduce、Zip，以及解释器Eval
+    + 由于不涉及代码生成和优化，主要在进行类型特化的模式匹配，所以编译速度还是挺快的
+    + 一个限制是，模板元编程是纯函数的，无法表示副作用，比如Eval中难以实现set!，从而无法做到letrec(以及衍生物define)。可以考虑State monad？
++ 一般语言是很难重载&&和||且保持短路求值的，因为这需要惰性求值设施，Scala中可以用call-by-name的第2参数来完美的做DSL短路求值

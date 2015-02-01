@@ -1,0 +1,106 @@
+#### 1. Engineering a compiler. 第5章，中间表示
++ 简介(Introduction)
+    + 所谓IR，即Intermediate representation
+    + 在编译的各个pass之间，应该传递一种能够作为整个程序权威表示的IR(definitive IR)，它包含了程序的完整语义，以及编译的过程中推断出来的中间信息；过程中可能会创建衍生IR(derivative IR)用于特定目的，如DAG(Directed acyclic graph)、CFG(Control-flow graph)、Data dependence graph、Call graph
+    + IR可以从3个方面分类
+        1. 结构性的组织(Structural organization)
+            + Graphical IR: 如Parse tree、AST、DAG、CFG、Data dependence graph、Call graph
+            + Linear IR: 如One-address code、Two-address code、Three-address code、SSA(Static single-assignment form)
+            + Hybrid IR: 如用CFG来表示控制流，而CFG中单个节点所代表的Basic block用三地址码来呈现
+        2. 抽象层次(Level of abstractions)
+            + 不同的抽象层次因为表达粒度不同，在优化等方面各有用途，比如接近源码层次树形IR很容易发现数组引用和函数调用的实参，而底层线性IR则很难发现这些事实；另一方面，上层IR可能没有表达变量的存储方式，而底层IR则编码了这些信息，并可针对它们进行优化
+            + 底层IR也可以包含类似min、max、memcpy等常见模式，通过将这些抽象暴露给底层，从而使得这些操作有机会得到特殊优化
+        3. 命名机制(Naming discipline)
+            + 可以考虑根据值和无副作用的基本操作的组合来命名临时变量，从而达到value numbering的效果，避免冗余计算等；因为这种类似DAG的操作，要求无副作用，因此，针对赋值、非纯函数调用等副作用，可以通过重命名变量来使得变量的值、类型都不可变，于是可以安全的缓存计算；相比随意的重命名变量，考虑到在Basic block的入口，需要汇集前驱基本块的原始变量的值，所以，重命名的时候，保留原始变量的信息更好，这就是SSA的做法
++ 图IR(Graphical IR)
+    + 各种图IR在抽象层次、与底层代码的关系、结构等方面，各有不同
+    + Parse tree: 一般只用于讨论语法分析和Attribute grammar中。
+    + AST
+        + 抽象层次接近源码，一般语法分析器可以直接创建
+        + 被很多编译器和解释器使用
+        + 常用于源到源的转换系统，可以轻易生成源代码
+        + Lisp的S表达式本质上就是AST
+    + DAG(Directed acyclic graph): 通过重写AST中重复子表达式得到，一般用作节省空间或消除冗余计算(此时只是中间过程的衍生IR)
+        + 共享节点要求无赋值、无副作用
+    + CFG(Control flow graph): 控制流图对基本块间的控制流动建立了模型
+        + 基本块(Basic block): 无分支的最长操作序列。操作总是全部执行，除非触发异常。每个基本块可能有多个后驱(Jump对应1个后驱，CBR对应2个后驱，Jump register对应N个后驱、TBL对应K个后驱)
+        + 一般为简化讨论，假设CFG只一个入口(多个入口的时候，可以通过建立N0，并连接N0到所有入口得到)，和一个出口(多个出口的时候，建立Nk，并连接所有出口到Nk)
+        + 有循环的时候，CFG可能是带环图
+        + 相比采用基本快作为CFG的基本单位，另一种选择是使用单语句块(Single statement block)作为基本单位，优点是创建简单，缺点是CFG节点规模太大
+        + 可以轻易从线性IR创建CFG
+        + 指令调度和全局寄存器分配都可能依赖CFG
+    + Data-dependence graph: 模拟代码片段中值的定义和使用之间流动的图
+        + 每个节点表示线性IR中的一个语句，节点间的每条有向线段，表示值的定义到值的使用，对应值必须先定义再使用的约束
+        + 依赖图表示的代码片段的执行顺序，是一种partial order，比Linear IR中的implicit order更弱，这就给诸如指令调度的优化提供了重排(rearrange)的余地，使得out-of-order优化成为可能
+        + 可能需要编码控制流信息
+        + 难点是数组/指针的引用。粒度太大，比如考虑整个数组，则意义不大；降低粒度去分析数组/指针的槽，则需要精确的分析(编译期模拟运行时行为是不可能彻底的)
+    + Call graph: 用来表示过程间调用关系的图，每个节点表示一个过程，每条边表示一个Call site
+        + 为解决跨过程边界的效率低下问题，一些编译器需要过程间分析优化(Interprocedural analysis and optimization); 为表示运行时过程间控制转移，编译器使用调用图
+        + 术语
+            + Interprocedural: Any technique that examines interactions across multiple procedures is called interprocedural
+            + Intraprocedural: Any technique that limits its attension to a single procedure is called intraprocedural
+        + 一些工程因素和语言特性使得Call graph构建复杂
+            + Separate compilation
+                + 一些编译器为编译单元(compilation unit)中的所有过程建立部分调用图(partial call graph)，并在该集合上进行分析和优化。在这样的系统中要进行过程间分析，要一次性传递所有源码给编译器。
+                + 现在的一些C/C++编译器开始在link edit time进行过程间优化；JVM等JIT编译器在loading time或execution time进行过程间分析
+            + First class function: 这往往被实现为`call r`，直接的，应该建立该调用点到所有过程的边；编译器应该进行分析，以限制这里的边的集合
+                + CFG中也存在类似问题，由于`jump r`的存在，该基本块的后驱应该是其他所有基本块；通过类似tbl的指令，显示的枚举目标基本块的集合，从而限制后驱数量
+            + Runtime polymorphism(如Subtyping): 这里的二义性调用，需要引入更多的类型信息才有可能解决
+                + 部分语言可以通过分析类层次来消除二义性(比如C++/Java的虚函数内链)，其他语言只能在运行时通过Type feedback来处理
++ 线性IR(Linear IR)
+    + 使用线性IR的原因
+        + 输入的源码是线性，输出的目标码也是线性
+        + 早期编译器作者是汇编出身，采用汇编作为IR符合直觉
+        + 相比data-dependence graph的partial order，线性IR定义了一种确定的顺序
+        + 如果definitive IR使用线性，则必须编码控制流。一般通过Jump和Conditional branch来表达
+            + 一般硬件ISA的CBR使用一个跳转目标，通过为IR设计两个跳转目标(Taken branch和Not-taken branch)，避免了Fall-through branch
+    + 单地址码(One-address codes mode)
+        + 模拟累加器(Accumulator machine)、栈机器(Stack machine)
+        + 易于生成、易于优化(实际的寄存器分配策略可以后期决定)、空间占用小(所以常被叫做Bytecode，易于传输)
+        + 很容易转换成三地址码等
+        + 从抽象层次上来说，也允许使用max、min、mvcl等高层指令
+        + Smalltalk 80和JVM、CLR
+    + 两地址码(Two-address codes mode) 
+        + 模拟了有破坏性操作(Destructive operation，即一个源操作数寄存器会被改变)的机器，由于内存限制越来越不重要，已经很少使用了
+    + 三地址码(Three-address codes mode)
+        + 类似RISC指令，即两操作数及目标，往往四字节就可以表示一个指令了
+        + 易于生成、易于优化
+        + 从抽象层次上来说，也允许使用max、min、mvcl等高层指令
+        + SSA
+    + 线性IR的表示
+        + 可以使用指令的链表，由于允许高效的扩容，所以很适合被用在前端，此时的指令规模未知
+        + 指令指针的数组，或者4元组(两操作数+目标+操作符)的数组。由于数组允许线性索引，所以在指令调度阶段的重排中很合适
+    + 一些编译器的选择
+        + IBM的Fortran H，使用三地址码(四元组)和控制流图组合
+        + GCC，要求每种语言实现GIMPLE接口(树IR)，然后根据GIMPLE建立SSA，得到RTL(Register transfer language)进而优化
+        + LLVM，静态类型的三地址码，支持数组、结构、向量(SIMD)，对于标量使用SSA
+    + 根据线性IR建立CFG
+        + 遍历IR，每发现一个Label即创建一个新的基本块；检查每个基本块的结束指令，如果是JUMP，则创建边连接到目标块；如果是CBR，建立两条边到Take branch和Not-taken branch的基本块；如果是JUMP r，则建立边连接到所有的基本块
++ 将值映射到名字(Mapping values to names)
+    + Naming temporal value: 根据源操作数及运算符来为临时值命名，从而将值的信息编码到名字中，为优化提供了可能。这里类似DAG的value numbering优化，要求无副作用。
+    + SSA Form: 每个定义(definition point)都有不同的名字，在控制流合并的位置插入Thi函数
+        + SSA encodes both control and value flow。
+        + Thi函数的行为取决于运行时的控制流，根据源基本块的不同，本基本块开头的一组Thi函数会进行并行的赋值
+        + 在三地址码中表达Thi函数，操作数不止2个，因此该条指令可能较大
+        + 将线性IR转换成SSA的方法：深度遍历基本块集合，对于每一次变量赋值，重命名到更大编号；在下一个基本块开头添加Thi函数并重命名。相比后文的专门的SSA构建算法，这里的简单方案得到的Thi操作较多，有待优化
+    + 内存模型(Memory models)
+        + Register-to-register model: 编译器激进的将所有值保存在寄存器中，只当语义需要才将值写回内存(如跨函数边界的非局部变量、传递局部变量地址给另一个函数)
+            + 后续的寄存器分配算法，可能由于物理寄存器数量太少，而增加额外的store(Register spilling)、load指令，造成指令规模增大
+        + Memory-to-memory model: 将所有值保存在内存中，仅当需要才将值加载到寄存器，操作过后再写回内存
+            + 后续的寄存器分配算法，会优化掉多余的store、load操作，从而使得指令规模更小
+        + 一般IR的选择和内存模型的选择是正交的
+        + RISC更倾向于选择R2R模型，因为它更符合RSC的ISA，只需要少许调整
++ 符号表(Symbol table)
+    + 为避免每次引用一个符号时，搜索IR去寻找定义，所以使用中央存储即符号表
+    + hash表可以用做稀疏图(sparse graph)，缺点是无法进行遍历，比如查找某节点的所有后继节点
+    + 避免hash算法退化的一种方法是，改用multiset discrimination，即，直接从词法分析器拿到所有token的集合，然后排序，并为每个不同的lexeme分配一个id作为hash值；即通过离线算法得到完美hash
+    + 为将嵌套词法作用域(lexical scoping)的程序的每个变量引用映射到对应的定义，需要lexical scoped symbol table
+        + 这个查找过程称为name resolution
+        + 这里的scoped hash table也可以用来优化，比如被用在super local value-numbering中
+        + 变量在相应存储区中的偏移量的(level, offset)对，被叫做静态坐标(static coordinate)
+    + 符号表还会被用作Structure table，即用来管理自定义类型的名空间。符号表在这里有几种用法：
+        + Separate table: 即每个结构一个表。优点是允许枚举单个结构的名空间，并允许和scoped hash table类似的处理流程
+        + Selector table: 用限定的前缀以及字段名(field-selector)组成的table，在公共的表中索引
+        + Unified table: 在全局符号表中索引
+    + OO语言如Java的嵌套作用域更复杂，包括函数本身的作用域、外层词法作用域、类的名空间、父类的名空间、当前包的名空间(涉及跨文件符号)、import包的名空间
+    + hash表还可以用作pure function的memoizing等
