@@ -264,3 +264,95 @@
             + Mark-Sweep也可以进行compaction
             + Copy GC不需要专门的标记阶段
             + Incremental collector也被叫做Realtime collector
+
+#### 6. Engineering a compiler. 第7章，代码形式(Code shape)
++ 简介(Introduction)
+    + Keywords: Code generation, control structure, expression evaluation
+    + The concept "code shape" encapsulates all of the decisions, larget and small, that the compiler writer makes about how to represent the computation in both IR and assembly code
+        + Careful attension to code shape can both simplify the task of analyzing and improving the code, and improve the quality of the final code that the compiler produces
+    + 编译器在给定处理器上实现大多数源语言结构时，都可以有多种方法，不同的方法使用不同的操作和途径；其中一些更快，一些内存更少，一些寄存器更少，一些能耗更低。我们将这些差别归因于代码形式
+    + 代码形式会强烈的影响到编译后代码的行为，以及优化器和后端改进代码的能力。比如:
+        + switch可以编译成线性的if-then-else、jump table、hash表、二分查找，每种方案有其适应场合，性能各不相同
+        + 加法由于Commutativity和Associativity的性质，连续加法的AST可以有多种组织形式，不同的顺序，在constant folding、value numbering面前优化的机会各不相同
++ 分配存储位置(Assigning storage locations)
+    + Glossary
+        + Physical register: a named register in the target ISA
+        + Virtual register: a symbolic name used in the IR in place of a physical register name
+        + Page: the unit of allocation in a virtual address space. The operating system maps virtual pages into physical page frames
+        + Spill: when the register allocator cannot assign some virtual register to a physical register, it spills the value by storing it to RAM after each definition and loading it into a temporary register before each use
+        + Unambiguous value: a value that can be accessed with just one name is unambiguous
+        + Ambiguous value: any value that can be accessd by multiple name is ambiguous
+    + 编译器必须为代码的各个值分别分配一个存储位置，为此，编译器必须理解值的类型、长度、可见性和生命周期；编译器必须考虑内存的运行时布局、源语言对数据区和数据结构布局的约束，目标处理器对数据位置或使用的约束
+        + 命名值的生命周期由源语言规则和代码中的实际用法确定。比如静态变量必须跨调用保持
+            + The lifetime of a named value is defined by source-language rules and actual use in the code
+        + 编译器在处理未命名值时有更大的自由度，放置在何处、保持多长时间，编译器的余地很大
+            + The compiler has more freedom in how it treats unnamed value
+        + 编译器还必须为每个值作出决定，是保存在寄存器中还是内存中，一般来说，编译器会采用一个内存模型。两种常见的策略是内存到内存模型和寄存器到寄存器模型
+            + Memory to memory model: 所有值都在内存中，计算时加载到寄存器，求值后写回内存(简单JIT可以用这个方案...)
+                + 在该方案下，后续的物理寄存器分配器环节，只是优化，而非必须
+            + Register to regsiter model: 假设有足够寄存器用于计算，只在语义需要的时候写回内存：
+                + 以引用作为参数或返回值
+                + 用户指定volatile关键字
+                + 指针或数组造成ambiguous value
+                + 后期register allocator分配物理寄存器溢出时
+                + 在该方案下，后续的物理寄存器分配器环节，是必须的，不可省略
+        + 编译器会将值集中到各个数据区，每个数据区中的值都有相同的存储类别
+            + the compiler will group together values into data areas in which each value has the same storage class
+    + 编译器、OS、CPU协作，以确保多个程序能够以时间片为单位安全执行。有关程序地址空间布局、操控和管理的许多决策超出了编译器编写者的职责范围
+        + 就地址空间而言，编译器的视角(View)是单个进程的虚拟地址空间，上面分布着代码段、数据段、栈、堆等数据区；OS的视角是，多个进程运行在各自的虚拟地址空间中，最后由OS+MMU将它们映射到物理地址空间中；CPU的视角是物理地址空间
+    + Cache相关概念: tag, line, direct-mapped cache, set-associative cache, fully associatve cache, associative search(以tag在set中搜索line，常见替换方案有random replacement, least-recently used), hit ratio=cache hit/cache miss
+        + 某些ISA向应用程序开放高速缓存提示指令，以指示prefetched、flushed
+    + Assigning Offset: 某些ISA限制了数据项在内存中的放置，比如32位整数必须按32位字边界对齐、64位整数必须从64位双字对齐，这叫做alignment rule
+        + 为了遵循alignment rule, 编译器可能会插入padding
+        + 一些语言对layout有限制，比如C的struct，要求必须按声明顺序排列，可能要求pack; 而java的class和Algol-like language的局部变量区，编译器可以自由安排顺序
+        + 当允许编译器安排顺序时，为了遵循alignment rule，编译器可以按alignment从大到小依次安排(如果不考虑性能相关的cache line、page因素的话)(甚至JVM允许将子类的字段插入到基类的padding之中)
+        + 某些ISA在jump之外还提供了call指令，它可能对AR的格式和AR的起始地址有对齐要求(如MacOSX要求AR必须16字节对齐)
+    + Relative offsets and cache performance:
+        + 可能编译器希望将两个关联值一起加载到cache中，这就需要让两个值的相对偏移尽量控制在cache line大小以内。如果只考虑两个值的相对偏移，是可以处理的，但如果考虑到各组变量的交互，那么是NP-complete的。
+        + 如果两个值的距离超过了page size(比如，其中一个值是很大的数组)，由于经过MMU的物理地址偏移是runtime binding的，编译器无法控制，其性能也就无法估量，因此编译器倾向于让频繁操作的值被放置在同一page、甚至是同一cache line中
+    + Keeping values in registers: 在寄存器到寄存器模型中，编译器倾向于将值尽量保存在寄存器中；后续的寄存器分配阶段，可能会由于物理寄存器不足某些值被spill到内存
+        + 除非：
+            + 静态分配的变量第一次使用时需要加载
+            + 传引用的参数和返回值需要加载或写回
+            + 用于通过volatile等feature显示指定
+        + 编译器可以保存在寄存器中的值称为unambiguous value
+        + 有多个名字的值称为ambiguous value，成因包括指针/引用，数组元素；对于歧义值，除非编译器能证明两个名字的值集不想交，否则每次赋值后，都必须重新加载值
+            + 为了优化指针/引用造成的pointer aliasing，编译器可能需要进行interprocedural data-flow analysis
+            + 为了优化数组元素的访问，编译器需要进行data-dependency analysis
+            + 语言特性可能帮助改善问题，如C的restrict和volatile(被用于硬件设备中断、interrupt service routine修改的变量，多线程修改的变量)
+    +  本书的简单三地址码生成规则有几个优点(每次引用值的时候都分配一个虚拟寄存器):
+        + 简化代码生成器
+        + 方便后续阶段改进分析和优化结果
+        + 避免将machine-dependent的约束写进IR中，比如字长/立即数长、寻址方式等，从而增强了编译器的可移植性
++ 算数运算符(Arithmetic operators)
+    + Glossary
+        + Rvalue: an expression evaluated to a value is an rvalue
+        + Lvalue: an expression evaluated to a location is an lvalue
+    + 现代处理器为表达式求值提供了全面支持，典型的RISC机器具有完全的三地址操作
+    + 三地址形式使得编译器能够命名任何操作的结果，避免了二地址形式的主要复杂性--destructive operation
+    + 简单的表达式代码生成可以通过后序遍历，为了减少寄存器需求，可能需要先对每颗子树计算寄存器个数，然后求值时，按寄存器数从多到少依次进行
+        + 这里编译器安排求值顺序的自由性，这么像C/C++那样，除了sequence point外不限制求值顺序(哪怕是副作用操作)；对于Java/C#这种有严格求值顺序(从左到右)的语言，只能对无副作用操作(可能需要进行过程间分析以证明某些表达式无副作用)进行乱序
+    + 本书中生成的简单三地址码，没有使用基址、偏移寻址方式，这既避免了在IR中引入机器依赖行为，也为后面的窥孔优化等提供了机会
+    + 由于精度限制，计算机的浮点数只是实数的一个子集(在数轴上非均匀)，因而没有结核性和交换性，所以编译器不能重排表达式，除非语言/编译选项允许这么做
+        + Due to limitations in precision, floating-point numbers on a computer represent only a subset of the real numbers, one that does not preserve associativity
+    + 由于函数可能具有副作用，所以编译器不能跨函数调用进行乱序求值，除非像C/C++那样不规定顺序，或者能通过过程间分析(比如通过call graph)证明无副作用
+    + 通过将类型转换操作视作一个IR指令，后续的优化步骤能将之视为整体进行消除、移动
+        + 基本类型的转换操作，要么由目标ISA提供专门指令；要么被编译器实现为机器相关的一组操作
+        + 对于用户自定义的类型转换，用户会提供转换过程
+    + 虽然赋值一般是右结合的，但它的求值顺序也可能是从左到右(比如Java)，其中，赋值号左边是lvalue，求值结果是地址，右边是rvalue，求值得到一个值
+    + 一些优化如充分利用处理器寻址模式、调度指令充分利用issue rate、寄存器分配，都无法很好的和树遍历框架(treewalk framework)集成，因此，生成最简单的IR更好
++ 布尔运算符和关系运算符(Boolean and relational operators) 
+    + Glossary
+        + Short-circuit evaluation: This approach to expression evaluation, in which the code evaluates the minimal amount of the expression needed to determine its final value, is called short-circuit evaluation
+        + Predicated execution: an architectural feature in which some operations take a boolean-valued operand that determines whether or not the operation take effect
++ 数组的存储和访问(Storing and accessing arrays)
+    + Glossary
+        + False zero: the false zero of a vector V is the address where V[0] would be, in multiple dimensions, it is the location of a zero in each dimension
+        + Dope vector: a descriptor for an actual parameter array, dope vector may also be used for arrays whose bounds are determined at runtime
++ 字符串(Characters strings)
++ 结构引用(Structure references)
++ 控制流结构(Control-flow constructs)
+    + Glossary
+        + Tail call: a procedure call that occurs as the last action in some procedure is termed a tail call. A self-recursive tail call is termed a tail recursion 
+        + Jump table: a vector of lables used to transfer control based on a computed index into the table
++ 过程调用(Procedure calls)
