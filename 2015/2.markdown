@@ -344,15 +344,90 @@
 + 布尔运算符和关系运算符(Boolean and relational operators) 
     + Glossary
         + Short-circuit evaluation: This approach to expression evaluation, in which the code evaluates the minimal amount of the expression needed to determine its final value, is called short-circuit evaluation
+            + 早期，短路求值是用来优化，因为可以利用布尔表达式来省掉一些计算；后来，分支操作代价已经超过了省掉的计算，反倒是full evaluation比短路求值更快；因此，编译器的任务反倒变成了证明被短路的代码无副作用(可能需要过程间分析)，可以安全的进行full evaluation
         + Predicated execution: an architectural feature in which some operations take a boolean-valued operand that determines whether or not the operation take effect
+    + 处理器体系结构设计者在如何支持算术运算方面达成了广泛的共识，但对关系运算符的支持因体系结构而异，彼此变化颇大
+    + 表示(Representations)
+        + Numerical Encoding: assigns specific values to true and false and manipulates them using the target machine's arithmetic and logical operations
+            + 一般用1或者~0来表示true
+        + Positional Encoding: encodes the value of the expression as a position in the executable code, it use comparisons and conditional branches to evaluate the expression, the different control-flow paths represent the result of evaluations
+            + 如果一个表达式的结果从不存储，那么使用位置编码进行表示有意义的；当使用表达式的结果来确定控制流时，位置编码通常可以避免非必要操作
+    + 硬件支持(Hardware support for relational operations)
+        + Boolean-valued comparisons: 通过Comp_LT、Comp_Eq等产生boolean值，再进行and/or得到值编码或者CBR得到位置编码
+            + 适合实现值编码而非位置编码
+        + Straight condition codes: 通过Comp或者算数运算，影响条件码寄存器，之后再依据条件码寄存器进行CBR_LT、CBR_EQ等控制转移
+            + 适合实现位置编码而非值编码
+            + 当算数运算本身能影响条件寄存器时，省掉了一次Comp指令
+        + Conditional move: 在一个cycle中执行条件复制，避免了分支
+            + 很适合三元运算符如`t ? a : b`，但前提是证明b无副作用(因为无论是if还是三元运算符，明显是短路求值，clause b不一定求值的，而cmov要求先求值a、b，这就要求b无副作用)
+        + Predicated execution: cmov的增强版，通过一个boolean寄存器，来决定后面的指令要不要执行
 + 数组的存储和访问(Storing and accessing arrays)
     + Glossary
         + False zero: the false zero of a vector V is the address where V[0] would be, in multiple dimensions, it is the location of a zero in each dimension
+            + C语言直接
         + Dope vector: a descriptor for an actual parameter array, dope vector may also be used for arrays whose bounds are determined at runtime
+    + 多维数组的实现一般包括三种方案
+        1. Row-major order: 当最右下标变化最快时，缓存局部性最好
+        2. Column-major order: 当最左下标变化最快时，缓存局部性最好
+            + FORTRAN使用列主序
+        3. Indirection vector: 优点是实现不规则素组(ragged array)
+            + Java等支持
+    + 当以多维数组作为参数时，有必要传递维度信息，比如每个维度的上下界，这里的信息叫做Dope vector
+        + C语言中，每个维度的长度必须指定为常量或形参，C++只能指定为常量
+        + 部分语言会由编译器建立dope vector作为实参；如果有多个call site，可能会一早建立dope vector，在不同的call site上传递同一个实例
+    + Range checking
+        + 简单的range checking是在每个引用前插入条件判断
+            + simplest implemention of range checking, as this is called, inserts a test before each array reference
+        + 更优的方案是编译器证明检查是冗余的，从而合并、移除(range checking elimination, range checking code motion)
+            + the least expensive alternation is to prove, in the compiler, that a given reference cannot generate an out-of-bounds reference
+            + optimizing compiler often contain techniques that improve range-checking code. checks can be combined, they can be moved out of loops, they can be proved redundant
 + 字符串(Characters strings)
+    + 程序语言对字符串的支持程度，可以是C语言水平，其中大多数操作都是库函数；也可以是PL/I水平，把字符串作为第一等公民
+    + 字符串操作可能是代价高昂的，所以某些CISC体系结构，提供了专门的字符串操作；而RISC，更依赖于编译器使用简单的操作来实现字符串操作
+    + 常见的字符串表示，包括以0结尾的串，和显示保存长度的串
+        + C语言最初是在DEC PDP/11上实现的，该机器支持自动后增(auto-postincrement)，所以C语言有i++操作
+    + 由于基于字指令的字符串操作实现极为繁琐(需要掩码与移位)，所以一般ISA都支持基于字符的指令
+    + 字符串拷贝(包括更泛的memcpy)，需要考虑的因素包括多字节拷贝(甚至SIMD)、对齐、是否有重叠等因素
 + 结构引用(Structure references)
+    + 成员名无歧义的引用是fully qualified name
+    + 编译器是否有权重排字段，以遵守alignemnt rule的前提下节省空间，取决于，语言是否将结构布局开放给用户
+        + C开放给了用户，所以编译器不能重排；而Java没有开放
+    + 结构数组可以被实现为AOS(array of struct，如C语言)，或者被实现为SOA(struct of array)，因字段访问方式的不同，两个方案可能在缓存局部性上有截然不同的表现
+    + 要实现类型的并，可以通过tagged union或者variant，编译器本身有强烈的动机来移除这里的type checking
+        + the compiler has a strong motivation to perform type checking and remove as many checks as passible
+    + 通过分析来消除指针引用和数组引用的二义性，是对程序性能的各种潜在改进的主要来源。对于密集使用指针的程序，编译器可以进行过程间数据流分析，以便找到每个指针可能指向的潜在对象结合；对于密集使用数组的程序，可以使用数据相关性分析来了解数组的引用模式
+        + Analysis to disambiguate pointer reference and array reference is a major source of potential improvement in program performance. For pointer-intensive programs, the compiler may perform an interprocedural data-folow analysis aimed at discovering. For each pointer, the set of objects to which it can point. For array-intensive programs, the compiler may use data-dependence analysis to understand the patterns of array reference
+        + Java由于动态加载机制，过程间分析的边界是class文件，这限制了很多潜在优化；Android是以包为发布单位，过程间分析的边界极大的扩大了，.Net也类似；C/C++的分析边界是文件，除非进行link time interprocedural optimization
 + 控制流结构(Control-flow constructs)
     + Glossary
         + Tail call: a procedure call that occurs as the last action in some procedure is termed a tail call. A self-recursive tail call is termed a tail recursion 
         + Jump table: a vector of lables used to transfer control based on a computed index into the table
+    + 根据Linear code建立CFG，其中每个basic block，可以用(first, last)对来表示，也可以用一个first数组来表示整个basic block array
+    + 实现条件分支
+        + Predicated execution只适合实现简单的分支表达式，对于复杂的分支语句，会有以下问题:
+            + 相比条件分支额外的一个分支跳转，长语句所需要的谓词指令序列，需要占用一个额外的issue slot，使得最终的effective issue rate不高(比如只有1/2)
+            + 当两个分支指令数不同时，使用谓词比较麻烦
+            + 分支内嵌分支时，谓词表达式会很复杂
+        + 如果分支中一条路径频率显著高于另一条，那么可以对该分支加速，比如进行分支预测、投机执行、逻辑重排
+            + techniques that speed execution of that path may produce faster code, this bias may take the form of prediction a ranch, of exectuion some instructions speculatively, or of reordering the logic
+            + Branch predication by users
+    + 实现循环
+        + For循环有两种简单实现，其中一种只有一个CBR，尾部加上JUMP；另一种先用一个CBR做先期判断，再在尾部放一个CBR
+            + 方案2相比方案1的优点在于: 1. 循环体少一个JUMP指令 2. 循环体只有一个basic block，后前者有两个，在优化阶段效果不同(这里指循环体最简单的情况下)
+    + 实现case语句
+        + 线性查找: 一系列if-then-else，能力最强(每个case可以使任意表达式)，性能最差
+            + 一般pattern matching采用该实现
+        + 二分查找: 对各case分布无要求，只要求compile time binding
+        + hash表: 适合任意类型的case值，对分布无要求
+            + Java、.Net中对string使用switch就是经过的hash表
+        + jump table: 适合各个case分布紧凑的情况, 一般通过tbl指令来指示潜在的目标，以简化CFG
+            + C语言一般采用该实现。对于fallthrough的case，需要连续布局代码；对于table中的空槽，需要填充switch后的地址(某些语言的pattern matching在空槽中填充错误例程地址)
 + 过程调用(Procedure calls)
+    + 在满足linkage convention的基础上，一般倾向于将尽量多的代码塞进prologue sequence/epilogue sequence，而不是precall sequence/postreturn sequence，因为调用点多于定义点，前者可以减少目标码大小
+    + 求值实参时，编译器倾向于乱序以获得更好的性能(比如先求值寄存器需求多的实参)，但这受到语言规定的求值顺序限制，除非能通过过程间分析证明乱序不涉及副作用，不影响结果
+        + C/C++除了sequence point外无要求，因此编译器乱序的自由度较高
+        + Java/C#要求从左到右求值，编译器要想乱序更困难
+    + Save and restore registers
+        + 一些ISA如SPARC、POWRE、VAX上提供了多字load/store操作用来保存和恢复寄存器的某个集合
+        + 较大的寄存器集合减少了register spilling的可能，使得很多溢出操作只发生在call位置；集中在call前后的store/load操作为编译器优化提供了机会
+        + 可以通过库例程来保存、恢复寄存器，从而减少代码大小
