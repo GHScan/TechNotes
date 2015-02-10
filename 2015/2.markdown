@@ -611,4 +611,14 @@
             + Link-time optimization: 传统分离编译，在链接时进行whole-program的过程间优化
                 + 一般只对静态链接有效，动态链接的优化受限制
 
-#### 10. Profile guided optimization
+#### 10. Profile-guided optimization
++ Inlining
++ Virtual call speculation: insert a conditionally-executed direct call to the frequently-targeted function, and the direct call be inlined
++ Regsiter allocation: better register allocation
++ Basic block optimization: 高频basic block放在同一个set of pages，更好的局部性，最小化number of pages used
++ Size/Speed optimization: 耗时多的函数特别的优化性能
++ Function layout: 同一个execution path的函数放到相同的section中
++ Conditional branch optimization: switch的各个case测试顺序；if/else的哪个分支放在前面(icache的局部性)
++ Dead code seperation: 不常用的函数放到单独的section中，隔离到所有sections的最后面
++ EH Code seperation: EH代码被隔离到单独的section中
++ Memory intrinsics
