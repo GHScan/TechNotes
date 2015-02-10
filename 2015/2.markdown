@@ -431,3 +431,184 @@
         + 一些ISA如SPARC、POWRE、VAX上提供了多字load/store操作用来保存和恢复寄存器的某个集合
         + 较大的寄存器集合减少了register spilling的可能，使得很多溢出操作只发生在call位置；集中在call前后的store/load操作为编译器优化提供了机会
         + 可以通过库例程来保存、恢复寄存器，从而减少代码大小
+
+#### 10. Engineering a compiler. 第8章，优化简介
++ 简介(Introduction)
+    + Glossary
+        + Safety: a transformation is safe when it does not change the results of runing the program
+        + Profit: a transformation is profitable to apply at some point when the results is an actual improvement
+    + Keywords: optimization, safety, profitability, scope of optimization, analysis, transformation
+    + 代码优化的目标是在编译期发现有关程序运行时行为的信息，并利用该信息来改进编译器生成的代码。改进可以有许多种形式，常见的目标是提高编译后代码的运行速度；对某些程序来说，代码的长度可能比速度更重要(比如烧录到某个ROM中的程序，其长度会影响到整个系统的成本)；其他目标包括降低能耗、提高对实时事件的响应或降低内存的总访问量等
+    + 优化的机会可能是许多来源导致的
+        + 低效性的主要来源是对源语言抽象的实现。从源语言到IR的转换是一个局部过程，进行该转换时未能对外围上下文进行广泛分析，生成的IR通常是为了处理各种源语言结构的最一般形式。在具有上下文知识的情况下，优化器通常可以判断代码是否需要这种完全的一般性，如果不需要，优化器可以用更受限、更高效的方式来重写代码
+        + 优化机会的另一个来源在于目标机，编译器必须详细了解目标机影响性能的那些属性，比如功能单元的数目和能力、内存层次结构中各个层次的延迟和带宽、指令集支持的各种寻址方式、罕见或复杂操作的可用性
+            + such as the number of functional units and their capabilities, the latency and bandwidth to various levels of memory hierarchy, the various addressing modes supported in the instruction set, and the availability of unusal or complex operations all affect the kind of code that the compiler should generate for a given application
++ 背景(Background)
+    + Glossary
+        + Strength reduction: a transformation that rewrites a series of operations...
+        + Loop unrolling: this replicates the loop body for distinct iterations and adjusts the index calculations to match
+        + Observational equivalence: for two expression, M and N, we say that M and N are objservationally equivalent if and only if , in any context C where both M and N are closed, evaluating C[M] and C[N] either produces identical results or neither terminates
+        + Memory bound: a loop where loads and stores take more cycles than does computation is considered memory bound. to determine if a loop is memory bound requires details knowledge about both the loop and target machine
+    + 调试编译器(debugging compiler)强调的是编译速度，通常不会显著的重排代码，因此再源代码和可执行代码之间保持了较强的对应关系，这简化了将错误映射到源代码中特定行的任务
+    + 随着RISC处理器进入市场(以及将RISC实现技术应用到CISC体系结构)，提高运行时性能的更多负担落到了编译器头上；为了提高性能，处理器架构师转而采用一些需要编译器提供更多支持的特性，包括分支指令之后的延迟槽、非阻塞内存操作、流水线使用的增多，以及功能单元数目的增加等。这使得处理器性能易受程序布局和结构方面的高层问题的影响，而且对指令调度和资源分配等底层细节也比较敏感。
+        + these include delay slots following branches, nonblocking memory operations, increased use of pipelines, and increase numbers of functional units; these features make processors more performance sensitive to both high-level issues of program layout and structure and low-level details of scheduling and resources allocation
+    + 优化器在编译器中的已经变得司空见惯，优化使前端和后端进一步隔离开来。在一定程度上，这简化了IR的生成。
+    + 现代优化器假定后端会处理资源分配问题，因此，优化器通常是针对具有无限寄存器、内存和功能单元的理想机器进行优化。这进而对编译器后端使用的技术施加了更多压力
+    + 例子
+        + 改进数组地址计算：对于二位矩阵的寻址，直接生成的IR没有上下文信息，`m[i, j]`生成的代码是i, j的函数，包括加法和乘法；而结合上下文进行strength reduction和induction variable analysis优化过后，矩阵元素的寻址只是基址+偏移了
+        + 改进嵌套循环：经过loop unrolling(以及可能的loop fusion)后，大段相似代码的循环体，给LVN、指令选择(不同的寻址方式)、指令调度(指令数增加，无关操作也就增加，从而有机会优化pipeline的使用)优化提供了机会。
+            + 一个难点是，由于对寄存器的需求增加(Demand for registers)，寄存器分配器压力增大，有劣化的风险，必须选择合理的展开因子
+    + 每种优化的核心之处都有两个问题，即安全性(Safety)和可获利性(Profitability)；编译器必须有一种机制来证明其应用的每个变换都是安全的，即变换将保持程序的原有语义；编译器还有理由相信应用某种变换是有利可图的，即变换会提高程序的性能；如果变换可能改变语义或降低性能，都不应该应用这种变换
+    + 风险(Risk)，如果意在改进性能的变换提高了编译器生成良好代码的难度，那么这些潜在问题应该被认为是可获利性问题。
+    + 优化的时机(Opportunities for optimization)
+        + 减少抽象代价(reducing the overhead of abstraction): 如结构、数组、函数调用、指针的优化
+        + 利用特例(taking advantage of special cases): 利用上下文信息来特化操作
+            + 比如，如果C++编译器能确定某个虚函数调用总是同一个实现，那么，可以进行静态绑定甚至内链
+        + 将代码匹配到系统资源(matching the code to system resources): 
++ 优化范围(Scope of optimization)
+    + Glossary
+        + Scope of optimization: the region of code where an optimization operates is its scope of optimization
+        + Extended basic block: a set of blocks, p1, p2..pn, where p1 has multiple CFG predecessors and each other pi has just one, which is some pi in the set
+        + Dominator: in a CFG, x dominates y if and only if every path from the root to y incudes x
+        + Redundant: an expression e is redundant at p if it has already been evaluated on every path that leads to p
+    + Local methods
+    + Regional methods
+         + 选择优化的区域：EBB、CFG中的Dominator relation、One of the strongly connected components in the CFG(强连通分量)
+         + 对循环内代码的改进，要远远超过对所有循环外代码改进的效果
+         + 可能的优化:
+            1. 证明一个大量使用的指针是无歧义的，从而可以将其中的值保存在寄存器中
+            2. 特别的优化循环体对应的多个BB
+    + Global methods(Intraprocedural methods): 考虑全局优化，是因为，过程是编译的自然边界。
+        + 一般先建立CFG，再处理；如果CFG有环(循环)，则先分析(Analysis)再变换(Transformation)。其中分析可以证明安全性和可获利性
+    + Interprocedural methods(Whole-program methods)
+        + 一般基于Call graph，有时候会考虑整个程序，其他情况下可以考察源代码的一个子集
+        + 虽然暴露了更多的优化机会，但也提出了新的挑战，比如parameter-binding rules导致的复杂性
+        + 两个经典例子是inline substitution和interprocedural constant propagation
++ 局部优化(Local optimization)
+    + Glossary
+        + Lifetime: the lifetime of a name is the region of code between its definitions and its uses, here definition means assigment
+        + NaN: not a number, a defined constant that represents an invalid or meaningless result in the IEEE standard for floating-number arithmetic
+        + Ambiguous reference: a reference is ambiguous if the compiler cannot isolate it to a single memory location
+        + Observable value: a value is observable, with respect to a code fragment, if it is read outside that fragment
+        + Upward exposed: a name x is upward exposed in block b if the first use of x in b referes to a value computed before entering b
+    + Local value numbering
+        + 由于LVN进行的`d<-a-d`到`d<-b`替换，缩短了a、d的生命期，但是延长了b的生命期，它们导致的寄存器需求的变换，是有可能带来性能劣化的；由于后续的编译步骤会引入更多的变换，所以很难度量优化效果，因此，一般简单假设LVN所进行的冗余删除能改进程序
+        + 可交换、可分配运算符的表达式结合顺序，会导致LVN的优化效果的不同，一般使用启发技术(heuristic techniques)去找一个好的顺序
+        + LVN的框架，可以很容易集成其他几种优化
+            + Commutativity operator: 通过编号，确保`a + b`和`b + a`被视作冗余
+            + Constant folding: 合并过后，变成立即数加载指令，后续的copy folding优化会移除
+            + Algebraic identities: 集成一系列的数学规则。可以对每种运算符，编码一颗决策树(operator-specific decision tree)
+                + `a+0=a`、`a-0=a`、`a-a=0`、`2*a=a+a`、`a*1=a`、`a*0=0`、`a/1=a`、`a/a=1, a!=0`、`a^1=a`、`a^2=a*a`、`a>>0=a`、`a<<0=a`、`a and a=a`、`a or a = a`、`max(a,a)=a`、`min(a,a)=a`
+        + 为每个目标地址命名一个唯一值，可以得到更多的优化机会，如`a<-x+y; a<-1; c<-x+y`
+            + 如果在SSA form下，直接享受此优点
+            + 可以先以类似SSA的方式命名并优化，最后将名字还原回去，根据需要引入临时名字；这里的重命名只是一趟优化pass，应该保持和其他BB的名字兼容
+        + 指针和数组引入的歧义值的存在，导致分析可能发生错误，比如通过`*p = 1`可能修改一个局部变量；对策是，通过数据流分析和数据依赖分析来尽量消除歧义，对于仍然存在歧义的变量，`*p = 1`应该视作一个变量集合的赋值，为这个集合的变量创建新名字
+    + Tree-heigth balancing
+        + 对于可交换、可结合的表达式树，平衡树对计算施加的计算顺序约束更少，可以更好的利用处理器的多个功能单元；这里意在向指令调度器揭示更多的ILP性质，从而改进程序
+        + 步骤：找到候选树(Candidate tree)，然后重构程序使之具有平衡形式
+        + 原理: 通过将指令序列视作一系列的树，然后根据依赖关系，输出序列化后的树。其中，可交换、可结合的运算符对应的操作，如果其结果值只被引用了一次，且引用点也是相同的操作，那么，该操作会和引用点一起组成一颗更大的树，在一个后续步骤中以类似huffman编码的方式去平衡
+            + 树根：不可交换或不可结合的指令，或结果值被引用多次的指令，或结果值作为LiveOut变量的指令(这种情形可以简化成引用两次)
+            + 平衡因子是启发性的，典型的可以采用变量节点数，也可以采用子树树高
++ 区域优化(Regional optimization)
+    + Glossary
+        + Loop fusion: the process of combining two loop bodies into one is called fusion. Fusion is safe when each definition and each use in the resulting loop has same value that it did in the original loops
+    + Superlocal value numbering
+        + 针对EBB的每个path，以类似scoped symbol table的方式来管理名字到value number的映射，据此来对每个BB应用LVN
+    + Loop unrolling
+        + 可以展开内层循环；也可以展开外层循环后紧接着对内层循环进行loop fusion，这个组合一般叫做unroll-and-jam
+        + 优化:
+            + 最直接的效益: 减少循环所需的判断和分支数
+            + 在循环体内重用寻址结果，减少内存访问(通过LVN)
+            + 暴露冗余
+            + 增加指令的数量，给指令调度更大的空间
+            + 同一变量的多次出现，影响寄存器分配器的调度算法，更准确
+            + 如果合并的循环体内包含复制操作的有环链，可以消除这些复制
+        + 风险:
+            + 增大了IR规模，导致更长的编译时间
+            + 目标码尺寸增大，icache压力更大
+            + 寄存器个数需求更大，可能导致spilling
+        + 由于优点和风险并存，展开因子(unroll factor)的选择比较困难，可以使用自适应方法(adaptive approach)，让编译器尝试几个不同的因子并测量结果
++ 全局优化(Global optimization)
+    + Glossary
+        + Data-flow analysis: a form of compile-time analysis for reasoning about the flow of values at runtime
+        + Backward data-flow problem: a problem in which information flows backward over graph edges
+        + Forward data-flow problem: a problem in which information flows along the graph edges
+        + Forward branch: a branch whose target has a higher address than its source is called a forward branch, in some architectures, forward branches are less disruptive than backward branches
+    + Finding uninitialized variables with live information
+        + 这是使用全局数据流分析(global data-flow analysis)来进行live variable信息的计算，它在许多优化中都能产生作用，比如tree-height balancing、SSA form的构建、寄存器分配
+            + 其他用法：
+                + 全局寄存器分配，只有活动的值，才需要占用寄存器，否则立刻释放
+                + SSA构建，在分支的入口，只对活动的值构建Phi节点
+                + store指令，如果目标不是活动的，可以安全移除
+        + 方法是，为每个BB分别计算UEVar、VarKill集合(扫一趟BB的指令序列即可)，然后在整个CFG上利用不动点解方程组，得到每个BB在出口位置的LiveOut，CFG入口BB的LiveOut中的变量，即是未初始化变量
+            + 方程是：LiveOut(n) = Union(foreach (m in successors(n)) Union(UEVar(m), LiveOut(m) - VarKill(m)))
+        + 有几个特殊情况干扰对未初始化变量的判断
+            + 变量可能通过别名来初始化(指针)。对策：数据流分析，消除歧义；或者保守的认为已初始化
+            + 传引用的方式调用过程，在过程中初始化。对策：过程间数据流分析；或者保守的认为已初始化
+            + 变量可能在该编译单元不可见的地方初始化。对策：对于静态、全局等作用域中的变量，保守的认为已初始化
+            + 运行时不可能的CFG路径。对策，进行symbolic evaluation
+    + Global code placement
+        + 很多处理器的分支指令代价不是对称的(静态分支预测？)，可能落空分支(fall-throught branch)代价小于采纳分支(taken branch)，因此，根据profiling结果，将高频分支作为fall-through branch，可以改进性能
+            + 另一个原因是，fall-through branch有更好的缓存局部性(icache)
+        + 方法：
+            1. 通过profiling，得到CFG中每条边的频率
+            2. 通过贪心算法，使用CFG的频率信息，构建一系列的hot path。这里的hot path使得forward branch数目逼近最大值
+            3. 根据hot path重排BB得到过程的fast layout
+        + Gathering profile data
+            1. Instrumented executables: 由编译器插入代码，统计事件频率写入特殊文件
+                + 灵活性最大，可以进行各种特殊处理，比如，CFG的边执行次数，满足流量性质，因此，可以只测量边的一个子集
+            2. Timer interrupts: 工具按较高的频率触发中断，然后在中断时刻记录pc位置，抓取栈信息
+                + 由于频率关系，只能记录占总时间比例大的函数
+            3. Performance counters: 处理器提供的硬件计数器，比如处理器周期数(total cycles)、缓存失效(cache miss)、采纳分支(taken branches)
++ 过程间优化(Interprocedural optimization)
+    + Glossary
+        + Inline substitution: a transformation that replaces a call site with a copy of callee's body, rewritten to reflect parameter bindings
+        + Compilation unit: the portion of a program presented to the compiler is often called a compiltion unit
+        + Procedure linkage code: Precall/postreturn/prologue/epilogue sequence
+    + 过程抽象的影响
+        + 优点：
+            + 控制了编译任务的规模
+        + 缺点：
+            + 干扰了优化相关的静态分析(除非进行过程间分析)
+                + 过程黑盒中的副作用，导致语言受限于求值顺序，不敢随便乱序
+                + 过程的引用参数可能被修改，使得caller必须spilling值到内存，调用返回后在load
+            + Calling convention引入的运行时开销。具体来说，是precall/postreturn/prologue/epilogue几组代码的额外开销，他们和最终的计算任务没有关系，只是在进行创建AR、保存caller状态、传实参、保存返回地址以及各种restore任务
+    + Inline substitution
+        + 变换
+            + 一种简单的处理，是在call site位置上，直接插入callee从progolue sequence到epilogue sequence的代码拷贝(注意，多处return应该被处理为到最后一个BB的jump)
+            + 对于同一个(caller, callee)组合，如果存在多个call site，内链过后可能需要复用局部变量名空间以减少开销
+        + 优点：
+            + 直接效果：消除Calling convention引入的操作
+            + 提高其他优化的有效性，为全局优化提供机会
+        + 缺点：
+            + 增加名字规模，导致编译时间加长
+            + 寄存器数量增加，影响寄存器分配器
+            + 目标码变大，icache压力更大
+        + 决策过程(decision procedures)
+            + Callee size: callee尺寸很小的时候，收益很高。比如，很多过程尺寸甚至小于procedure linkage code(precall/prologue代码)
+            + Caller size: 允许caller反复执行内链直到某个长度
+            + Dynamic call count: 高频callee倾向于被内链。因为procedure linkage code的开销很大
+                + 可以profile；也可以直接估算，比如，嵌套深度x10
+            + Fraction of execution time: 占总时间很小的callee，可以不内链
+            + Static call count: 只有一个call site的callee，直接内链，移除本体
+            + Constant-valued actual parameters: 带字面值的过程内链后，结合constant propagation，在全局优化中有很多机会
+            + Parameter count: 参数个数较多的callee，procedure linkage code开销大(比如实参压栈)，考虑内链
+            + Calls in the procedure: 作为leaf procedure的callee可以内链
+            + Loop nesting depth: 嵌套在较深层次的循环中，执行频率可能较高，适合内链
+        + 一般使用上面的依据作为启发规则(decision heurisitic)
+    + Procedure placement
+        + 类似global code placement，方法是，依据profile结果，重排过程。效果:
+            + 减小虚拟内存工作集(virtual-memory working-set size)
+            + 减少icache miss
+        + 和global code placement贪心算法有一点不同的是，对于(a,b)、(a,c)两个call site，只要频率够高，将b、c安排得尽量靠近a是有意义的，因为虽然icache miss可能无法避免，但可以控制working-set size
+    + Compiler organization for interprocedural optimization
+        + 一旦在分离编译(separate compilation)系统中进行了过程间分析，那么，就必须谨慎处理由于过程间分析引入的源码之外的依赖
+            + 比如，修改了callee，那么可能也需要重新编译caller
+            + 比如，修改了一个全局变量的初始化值，那么，所有依赖于这个值的文件都需要重新编译
+        + 几种可行的结构
+            + Enlarging compilation unit: 传统分离编译，通过整合多个编译单元来利用过程间分析能力
+            + Integrated development environments: 利用IDE检测依赖关系的变更，并正确的组织编译顺序
+            + Link-time optimization: 传统分离编译，在链接时进行whole-program的过程间优化
+                + 一般只对静态链接有效，动态链接的优化受限制
+
+#### 10. Profile guided optimization
