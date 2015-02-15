@@ -622,3 +622,146 @@
 + Dead code seperation: 不常用的函数放到单独的section中，隔离到所有sections的最后面
 + EH Code seperation: EH代码被隔离到单独的section中
 + Memory intrinsics
+
+#### 15. Engineering a compiler. 第9章，数据流分析
++ 简介(Introduction)
+    + Glossary
+        + Join point: in a CFG, a join point is a node that has multiple predecessors
+    + Keywords: Data-flow analysis, SSA form, Dominance, Constant propagation
+    + 静态分析通常从控制流分析开始，以理解各个操作之间的控制流，控制流分析的结果是控制流图。接下来，编译器分析值是如何流经代码的，编译器使用分析得到的信息来寻找改进代码的机会，并证明变换的安全性。优化相关的研究人员已经开发了全局数据流分析方法来回答这些问题
+    + 静态单赋值形式是一种中间表示，它在一种稀疏的数据结构中合并了控制流分析和数据流分析的结果
+    + 如果方法的输入局限于树的控制流图(如LVN、SVN)，那么该方法是可以在线执行的；如果方法必须处理CFG中的环(如GVN)，则他需要离线执行，在分析过程完成后才能开始重写代码
++ 迭代数据流分析(Iterative Data-flow analysis)
+    + Glossary
+        + Dominance: in a flow graph with entry node b0, node bi dominates node bj, written bi >> bj, if and only if bi lies on every path from b0 to bj. by definition, bi >> bi
+        + Meet operator: in the theory of data-flow analysis, the meet operator is used to combine facts as the confluence of two paths
+        + Postorder number: label the nodes in the graph with their visitation order in a postorder traversal
+        + Reverse CFG: The CFG with its edges reversed; the compiler may need to add a unique exit node so that the reverse CFG has a unique entry node
+        + Flow insensitive: this formulation of MayMod ignores control flow inside procedures, Such a formulation is said to be flow insensitive
+    + 支配性(Dominance)
+        + Dom(n) = union({n}, intersect(for p in predecessors(n) yield Dom(p)))
+        + 是一个正向数据流问题
+            + 正向数据流问题，应该以RPO来迭代；反向数据流问题，应该用RPO for reversed CFG
+        + 作用
+            + 其中Dominator frontier可以用于semipruned SSA构建中插入Phi
+    + 活跃变量分析(Live-variable analysis)
+        + LiveOut(n) = union(for s in successors(n) yield union(UEVar(s), LiveOut(s) - VarKill(s)))
+        + 是一个反向数据流问题
+        + 迭代数据流算法的可停止性(Termination)归功于单调性和底层集合的值空间有限这两个因素，这一性质通常称为有限递降序列性质(finite descending chain property)
+        + 作用
+            + Tree-height balancing判断根
+            + SSA构建判断是否插入Phi
+            + global register allocation
+            + 删除冗余store
+    + 可用表达式(Available expressions)
+        + AvailIn(n) = intersect(for p in predecessors(n) yield union(DEExpr(p), AvailIn(p) - ExprKill(p)))
+            + DEExpr是down exposed expression，即一次定义(赋值)；而对该定义的操作数的定义，将导致ExprKill
+        + 作用
+            + 用于全局冗余消除(global redundancy elimination, 又称全局公共子表达式消除, global common subexpression elimination)
+                + Lazy code motion是一种更强的公共子表达式消除，它也利用了表达式可用性
+    + 可达定义(Reaching definitions)
+        + Reaches(n) = union(for p in predecessors(n) yield union(DEDef(p), Reaches(p) - DefKill(p)))
+        + 作用
+            + minimal SSA构建中的Phi确定
+    + 可预测表达式(Anticipable expressions)
+        + AntOut(n) = intersect(for s in successors(n) yield union(UEExpr(s), AntOut(s) - ExprKill(s)))
+        + 作用
+            + Code hoisting: 一是减小运行时开销，二是减小代码尺寸
+    + 过程间综述问题(Interprocedural summary problems)
+        + MayMod(p) = union(LocalMod(p), for c in callsites(p) yield unbind(MayMod(c)))
+            + MayMod: interprocedural may modify
+            + MayRef: interprocedural may reference
+    + 局限性(Limitation)
+        + Control flow limits the precision of data-flow analysis: 死代码的BB干扰分析
+        + 数组、指针和过程调用对分析精确性的干扰
+            + 由于无法判断引用哪个数组元素，所以应该把整个数组看做整体，从而精度降低
+            + 指针引入了二义性，导致指针中的值不能缓存在寄存器中，应该通过分析减小潜在值的集合
+                + 指针类型可以帮助减小集合
+                + 没取过地址的局部变量也不用放到集合中
+                + 传引用参数和指针全局变量，需要过程间数据流分析来追踪指针的潜在值
+            + 过程调用，没有过程间分析的情况下，应该做最坏假设，即，过程会改变所有全局变量和传引用参数，结果是，传引用实参和全局变量不能在寄存器中穿过过程调用。
+                + 精确分析过程的综述信息(MayMod, MayRef)
++ 静态单赋值形式(Static single-assigment form)
+    + Glossary
+        + Strict dominance: a strictly dominates b if and only if a belongs to DOM(b)-{b}
+        + Dominator tree: a tree that encodes the dominance information for a flow graph
+        + Critical edge: in a CFG, an edge whose source has multiple successors and whose sink has multiple predecessors is called a critical edge
+        + Semilattice: a semilattice consists of a set L of values and a meet operator, ^. The meet operator must be idempotent commutative, and associative. A semilattice has a bottom element, some semilattice also have a top element
+    + Maximal SSA form: 在每个join point上，为过程中使用或定义的所有名字，都插入一个Phi
+    + Minimal SSA form: 根据reaching definition，为reaches中的名字添加Phi
+        + 代价是一趟逐语句的数据流分析
+    + Pruned SSA form(剪枝的SSA form): 在minimal SSA的基础上，对Reaches中的名字结合LiveOut进行裁剪，只对活跃变量建立Phi
+        + 代价是两趟数据流分析
+    + Semipruned SSA form(半剪枝的SSA form): 通过数据流分析收集global名字，以及这些名字的定义；针对名字的每次定义，在其BB的dominance frontier位置的BB中(必然是join point的BB)插入Phi
+        + 代价是搜集global的一趟逐语句的数据流分析，以及支配边界分析，这一过程是CFG node级别上的，粒度较大，开销较小
+        + 支配边界的计算：`for jp in joinpoints(cfg): for p in predecessors(jp): while (p != IDOM(jp)) { DF(p) |= jp; p = IDOM(p); }`
+        + Phi的插入：`for gdefine in globaldefines(cfg): for df in DF(BB(gdefine)): insertPhi(df, gdefine.name)`
+        + 重命名：很像抽象解释，处理每个BB的最后一步，是在每个后驱的Phi的右边插入本Env中的名字和编号
+    + 支配性相关
+        + Dominators(n): BB n的支配者集合
+            + 原始的SVN遇到join point是清空Env的，但实际上，join point可以继承它的支配者的Env链
+        + Strict dominators(n): 去掉n本身
+        + Immediate dominator: 离n最近的一个dominator
+            + IDOM(n), IDOM(IDOM(n))... 可以得到n的dominators集合
+        + Dominator tree: 在CFG节点的基础上，连接每个节点n到它的IDOM
+        + Dominance frontier: 支配边界。即从节点n可达，但不支配的第一个节点(集合)。实际上，n的支配边界，是n下游的一个join point，它包含其他分支的流
+    + 静态单赋值转换成其他形式(Translation out of SSA form)
+        + 方法
+            1. 去掉名字编号和Phi
+                + 如果创建SSA后没经过一些激进的变换，是可以这么做的；但如果经过了变换，比如，在x10被定义后，后续的语句还引用x9，那么，去掉编号和Phi将导致错误
+            2. 保留名字和编号，将Phi的一系列赋值分别插入各个predecessor中
+                + 如果边是critical edge，有两种处理方法:
+                    1. split。即在边的源和目的之间插入一个BB，消除critical edge。可以对整个CFG执行这种变换，但这会导致BB增加，影响后续优化效果；比如，单BB循环体因此变成双BB，多了跳转，效率下降。
+                    2. 插入赋值序列到源BB中，但同时在这个赋值序列的前面再插入一个备份赋值序列，然后对该critical edge以外的edge的后驱进行rename，使得对原名字的引用变成对备份名的引用
+                + 全局变量怎么办？
+        + 由于同一个BB中的各个Phi在概念上是并发执行的，所以，如果有激进优化利用了这一点的话(如在swap中使用copy folding)，那么SSA是无法正确转换成其他形式的，必须利用预处理打破循环引用
+    + SSCP(Sparse simple constant propagation)
+        + 是一种全局常量传播算法(global constant propagation)，比constant folding效果更强(后者一般只能处理连续的立即数)，结合SSA，类似`local a = true; if (a){} else {} a = func()`都能进行死代码消除
+        + 对应的经典数据流算法方程应该用到ConstantsIn、ConstantsOut
+        + 算法将每个值的可能结果分成三种，未知、常数、变数，对不同的操作，应用不同的求值规则，在算法达到不动点的时候，应该已经将所有的SSA名字从未知推断成常数或变数
+            + 针对每个操作符，算法会分别解释。一般规则是，操作数包含未知，则结果为未知，操作数包含变数，则结果一般为变数，操作数全是常数，则进行constant folding
+                + 这里可以应用一些代数恒等式(Algebraic identity)，比如，对乘法，一个操作数推断为常数0，则结果始终为常数0
+            + 对操作符Phi的解释，是将值空间看做格(lattice)，名字对应的值即格值(lattice value)，未知表示top element，变数表示bottom element，而Phi操作本身，看做格值之上的Meet操作符。Meet规则如下：
+                + 未知(top) + 任意 => 任意
+                    + 这反映了乐观算法的效果。比如，Phi(10, unknown)=>10
+                + 任意 + 变数(bottom) => 变数
+                + Ci + Ci => Ci
+                + Ci + Cj => 变数
+            + 将SSA名字初始化为未知，是乐观算法(optimistic)；初始化成变数，是悲观算法(pessimistic)
++ 过程间分析(Interprocedural analysis)
+    + 构建调用图(Call graph construction)
+        + 导致call graph构建困难的因素包括:
+            + procedure-valued variables: first class function问题，runtime binding引入的困难
+                + 函数指针签名可以减小集合
+                + 可以通过数据流分析减小目标集合
+            + contextually-resolved names: subtyping多态中，runtime binding引入的困难
+                + 对于closed class hierarchy，可以分析receiver类型的可能子类型，减小callee集合
+                + 对于open class hierarchy和dynamic linking library等特性，只能做最坏打算了(假设过程总是修改所有全局变量和引用参数, 即MayMod、MayRef是全集)
+            + GC语言的finalizer调用时机
+    + 过程间常量传播(Interprocedural constant propagation)
+        + 目的是，证明在程序中，某个过程的某个实参，总是常数，从而允许在过程体内将形参替换成常数后进行全局常量传播
+            + 如果过程只有某个callsite以常数作为实参，那只能在callsite上进行inline substitution后应用全局常量传播
+        + 方法：
+            1. 将每个过程p中的所有callsite si的实参表示成jump function，即，si上的实参是p的形参和常数构成的表达式树
+            2. 将所有过程的形参标记为未知
+            3. 搜集所有callsite上的实参，并将对应过程的形参加入worklist。这里要利用格的meet来更新形参的格值
+            4. 从worklist上取出形参，更新受它影响的各个callsite上的jump function
+            5. 迭代，直到不动点
++ 高级主题(Advanced topics)
+    + Glossary
+        + Reducible graph: A flow graph is reducible if the two transformation, T1 and T2, will reduce it to a single node. If that process fails, the graph is irreducible. Other tests for reducibility exist, for example, if the iterative DOM framework, using an RPO traversal order, needs more that two iterations over a graph, that graph is irreducible
+    + Structural Data-flow algorithm and Reducibility
+        + 结构化数据流算法，是通过创建一系列派生图，来将CFG规约成一个节点，规约过程中，每次将一个子图替换成代表该子图的单个节点；规约成一个节点过后，算法倒转整个过程，从最后的派生图，返回原始的流图，过程中，为各个节点计算最终的数据流集合
+        + T1、T2变换
+            + T1变换是删除自环(self loop)； T2变换是只有唯一前驱的节点a的前驱b折叠回a中，删除(a,b)边，使a成为以b为源的边的新源。
+            + 如果无法通过T1、T2规约一个图，则该图是不可规约的(irreducible)
+            + T1、T2具有有限丘奇-罗瑟性质(finite church-rosser property)，这确保了应用T1、T2变换的结果与变换顺序无关
+            + 将T1、T2变换应用到具有多入口环(multiple-entry loop)的图上，会发现不可规约
+            + 可以通过拆分一个CFG使得它可以通过T1、T2规约
+        + 自从结构化编程崛起，程序员使用goto的可能性大大降低，不可规约图很少出现在全局数据流分析中
+            + break会导致CFG相对反向数据流问题不可规约。
+        + 由于相互递归(mutual recursion)的存在(如递归下降语法分析器)，不可规约图更容易出现在call graph中
+    + Speeding up the Iterative dominance framework
+        + 可以用IDOM来代替Dominators集合，于是，支配者数据流分析问题变成了IDOM求解问题；相比记录每个节点n的支配者集合，以及对n的predecessor的Dom集合求交，显然，只记录节点n的直接支配者，并用它来求交，空间复杂度会低很多，因此效率更高
+            + n, IDOM(n), IDOM(IDOM(n)), ...构成了n的支配者集合
+        + 通过以RPO顺序来对n的前驱的IDOM求交直到不动点，得到IDOM的算法，对一般的可规约图，只需要两个迭代；只有不可规约图，需要大于2次的迭代
