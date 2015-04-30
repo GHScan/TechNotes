@@ -1,0 +1,223 @@
+#### 2. Engineering a compiler. 第10章，标量优化
++ 简介(Introduction)
+    + Glossary
+        + Scalar optimization: code improvement techniques that focus on a single thread of control
+        + Machine independent: a transformation that improves code on most target machines is considered machine independent
+        + Machine dependent: a transformation that relies on knowledge of the target processor is considered machine dependent
+    + Keywords: Optimization, Transformation, Machine dependent, Machine independent, Redundancy, Dead code, Constant propagation
+    + 独立的优化器可以简化前端和后端，前端可以使用局部算法生成通用代码，后端专注于将程序的IR映射到目标机
++ 消除无用和不可达表达式(Elimination useless and unreachable code)
+    + Glossary
+        + Useless: an operation is useless if no operation uses its result, or if all use the result are, themselves dead
+        + Unreachable: an operation is unreachable if no valid control-flow path contains the operation
+        + Dead code: Useless or unreachable code
+        + Postdominance: in a CFG, j postdominates i if and only if every path from i to the exit node passes through j
+        + Control dependence: j在控制上依赖于i，那么，i应该是CFG上j的RDF(反向支配边界, Reverse dominance frontier)。这里是通过后向支配性(Postdominance)定义控制依赖的
+    + 有时候程序包含的一些计算不具有外部可见效应(externally visible effect)，可以安全删除。程序员一般不会写出这种代码，但是朴素(naive)的前端IR生成算法和宏展开器可能输出这些无用码
+    + Dead code指不具备外部可见性(useless)或不可达代码
+    + 删除死代码，直接效应是使得程序更小、(通常)更快；同时，它也增进了编译器改进代码的能力，因为它可能影响静态分析的结果。比如，在SCCP中，消除不可达代码，改变了常量传播的结果
+    + 冗余消除往往也会删除无用代码
+    + 消除无用代码(Elimination useless code)
+        + Dead算法：Mark + Sweep
+            + Mark: 先标记所有critical operation，再递归的标记每个操作的操作数对应的定义。标记每个操作时，需要同时标记它所在的BB的RDF块的CBR指令，因为该指令和被标记操作有控制依赖关系；所有Jump指令直接标记
+                + Critical Operation: 修改了外部可见内存的操作，包括procedure linkage code、修改全局变量、IO、返回值、修改引用形参、修改ambiguous value
+                    + precall、postret sequence作为关键操作是因为，相对callee，实参是可见的
+            + Sweep: 删除没有标记的操作。对于没有标记的CBR，将之替换成一条到所在BB的最近的被标记的postdominator的Jump
+    + 消除无用控制流(Elimination useless control-flow)
+        + Clean算法：用不动点跑OnePass，OnePass过程依次执行合并冗余分支、删除空程序块、合并程序块、提升分支指令的动作
+            + 合并冗余分支(Fold a redundancy branch): CBR的两个目标相同，替换成一个Jump
+            + 删除空程序块(Remove an empty block): BB只包含一个Jump，则将所有入边的源重定向
+            + 合并程序块(Combine blocks): Jump的目标只有一个入边，则合并两个BB
+            + 提升分支指令(Hoist a branch): BB只有一个CBR，则对每条入边，如果边的源是一个Jump，则将该Jump替换成BB的指令
+    + 消除不可达代码(Elimination unreachable code)
+        + 有两种原因的不可达：
+            1. 没有路径达到: 在CFG粒度上进行BB的Mark-Sweep
+            2. 存在控制依赖的CBR，但该CBR总为false: 对于CBR的条件，进行常量传播，根据情况改写成Jump。参见SCCP
+                + ambiguous value的存在会限制这里分析的准确性
+        + 如果语言允许对代码地址的算数运算，则所有BB都应该算可达。比如GCC中的Computed goto导致任何一个代码地址都能被计算出来并执行
++ 代码移动(Code motion)
+    + Glossary
+        + Redundant: an expression e is redundant at p if it has already been evaluated on every path that leads to p
+        + Partially redundant: an expression e is partially redundant at p if it occurs on some, but not all, paths that reach p
+        + Coalescing: a pass that determines when a register to register copy can be safely elimianted and the source and destination names combined
+    + 代码移动的两个目的:
+        1. 将计算移动到不那么频繁的位置上，减少执行的总操作数。重点关注的是将不变的表达式从循环中移出。比如LCM。
+        2. 为减少某个操作的副本进行代码移动来减少重复。比如Code hoisting。
+    + 代码移动的原理，是在特定位置插入操作，使得后面的操作成为冗余，从而去除
+    + 缓式代码移动(Lazy code motion)
+        + LCM只能移动表达式，不能移动变量赋值
+            + 对于冗余的变量赋值，后期Register allocation中的Coalescing环节可能会消除不必要的寄存器复制
+        + 运行在IR而非SSA上
+            + 参考的一种命名方式：变量序号小于k，而临时值(表示表达式)序号大于k，每个操作的结果序号同DAG规则
+            + 这里的冗余消除，是基于名字(name identity或lexical identity)的，而非值(value identity)，因此会错过一些优化机会。因此，在LCM之前，增加一趟renaming，将value identity信息编码到名字中，可以得到更好的优化效果
+        + 将冗余消除和部分冗余消除结合起来
+            + 部分冗余消除，是在Join point处，求得AntExpr，以及各个分支的AvaiExpr的并集，然后将这两个集合求交得到S；然后对每个入边的源BB，插入S-AvaiExpr。
+                + 对于循环来说，在循环入口的Phi节点处，Loop-closing branch上的AvaiExpr和AntExpr相同，因此，最终的插入会发生在初始化BB中，于是移除冗余将导致循环体中的不变式消失，只剩下初始化BB中被插入的操作，从而达到Loop-invariant code motion效果
+        + 步骤
+            1. 可用表达式:
+                + AvailOut(n) = Union(DEExpr(n), Intersect(for m in predecessors(n) yield AvailOut(m)) - ExprKill(n))
+            2. 可预测表达式: 
+                + AntOut(n) = Intersect(for m in successors(n) yield AntIn(m))
+                + AntIn(n) = Union(UEExpr(n), AntOut(n) - ExprKill(n))
+            3. Earliest legal placement:
+                + Earliest(i, j) = AntIn(j) - AvaiOut(i) - Union(AntOut(i), ExprKill(i))
+                + 解释：
+                    + 如果AntIn(j) & AvailOut(i), 则是冗余，不需要插入。
+                        + 这是关键的一步！区分了部分冗余的不同分支，只有非冗余边才会进行最早置放，进而进行Insert
+                    + 如果AntIn(j) & AntOut(i), 则表示还可以进一步前置
+                    + 如果AntIn(j) & ExprKill(i), 则表示操作数会被修改，不能前置
+            4. Latter placement: 
+                + LaterIn(j) = Intersect(for i in predecessors(j) yield Later(i, j))
+                + Later(i, j) = Union(Earliest(i, j), LaterIn(i) - UEExpr(i))
+                + 对部分冗余来说，这里的Later不会越过Join point
+            5. Insert、Delete: 
+                + Insert(i, j) = Later(i, j) - LaterIn(j)
+                    + 这里的操作记录在边上，意思是，如果源BB只有一条出边，则插入到源BB，如果目的BB只有一条入边，则插入目标BB，否则split critical edge后插入
+                + Delete(i) = UEExpr(i) - LaterIn(i)
+    + 代码提升(Code hoisting)
+        + 在分支BB的末尾插入AntOut(i)的操作，然后依赖后面的LVN、SVN等冗余消除pass来消除不同分支上的冗余，达到移动的效果
+        + 对称的动作叫code sinking，常见实现为cross jumping
++ 特化(Specialization)
+    + Glossary
+        + Promotion: a category of transformation that move an ambiguous value into a local scalar name to expose it to register allocation 
+    + 尾调用优化(Tail call optimization)
+        + 如果尾调用是一个自递归调用，那么可以直接优化成循环
+        + 优化
+            + 各种虚拟机提供了tailcall指令来优化
+                + 我的解释器实现tailcall指令为弹出当前栈帧，意为丢弃当前现场
+            + precall/postret sequence可以大大简化，不必有保留现场、恢复的动作。寄存器分配器也应该利用尾调用这个事实
+            + 可以复用AR，避免再分配
+                + 在栈分配AR的系统中，复用的动作可能就是`add esp xx`
+    + 叶过程优化(Leaf procedure optimization)
+        + 既然不会再有内部调用，那么，寄存器分配器可以尽量发挥
+        + 寄存器分配器应该优先使用caller save的寄存器，使得prologue sequence需要保存的callee save寄存器数量尽量少；最理想的情况下，prologue/epilogue sequence代码基本为空
+        + 由于每个线程只会有一个活动的叶调用，如果叶调用中不会返回first class function，那么，叶调用的AR可以分配在TLS中
+            + 既可以为每个叶过程在TLS中分配指派不同的空间，大小各不相同，也可以在TLS中保留一个最大的AR空间，各个叶过程复用它。不过在open class hierarchy中，这个最大AR可能难以获得...
+                + 如果能够进行过程间分析(需要知道callee的AR大小)，那么caller分配AR时，可以把callee的AR空间一起分配了，相比原始的独立堆分配AR的做法，遇到循环内调用叶过程时能受益
+            + 在TLS中创建AR的手法，在堆分配的AR的系统中，性能优势明显(如果没有内存池的话...)
+        + 用GD进行静态坐标寻址的系统中，叶过程不必将自己注册到GD中
+    + 参数提升(Parameter promotion)
+        + 如果能够通过过程间分析和数据流分析，证明某个歧义值具有唯一指向，那么，可以将该值放到一个局部变量中，从而允许寄存器分配器将它缓存在寄存器中，这种动作叫Promotion
+        + 对于引用参数，通过全局分析很容易证明它不会在函数体内和其他局部变量、全局变量歧义，那么，进行过程间分析，证明实参没有歧义，则可以进行提升
+            + 如果一个带引用参数的函数的部分callsite上有歧义，而其他callsite没有歧义，可以通过procedure cloning来隔离有歧义的版本，从而通过promotion优化无歧义的拷贝
+            + 如果引用参数不应该有歧义，用户可以通过restrict关键字来指出这一事实
++ 冗余消除(Redundancy elimination)
+    + 值相同与名字相同(value identity versus name/lexical identity)
+        + LVN、SVN都是基于value identity的，能够发现`x * 2`和`y=x; x + y`之间的冗余
+        + 数据流分析(AvailExpr、AntExpr)、DAG、LCM都是基于lexical identity的，不能发现上面的冗余
+            + 但LCM等算法也有它们自己的特点，比如LCM能够处理join point、loop-closing branch，能够发现partially redundant，这些都是LVN、SVN不具备的能力。通过将值信息编码到名字中，LCM能够利用两者的优点
+    + 基于支配者的值编号算法(Dominator-based value nubmering)
+        + 类似SVN，DVNT也可以将value numbering的Env传递给后继BB，在这里是按dominator tree的父子关系传递，因为父BB总是支配子BB，因此父BB的Env中的VN总是对子BB可见，唯一的问题是，父子之间的分支BB可能会修改VN，为了避免修改，这就要求DVNT强制使用SSA(LVN使用SSA只是可选的，为了发现更多冗余)。
+        + DVNT算法有两个效果：
+            1. 删除冗余表达式
+            2. 将值相同的名字都替换成值的第一次出现的名字。这种renaming效果，正是LCM、Code hoisting等基于lexical identity的算法所需要的，它能为后者提供更多的优化时机
+        + 算法
+            1. 访问BB，以来自父BB的Env链作为prev引用创建新的Env
+                + 因为SSA已经移除了赋值操作，所以这里的Env不是用于追踪变量变化的，而是用来追踪别名的，VN[name1]的结果是name2，表示别名(当然，大部分时候name1==name2)
+                + 另外，Env中也包含记录冗余的`x op y -> z`的hash表
+            2. 处理BB中的各个操作：
+                + 对于Phi操作：(operand已经被重命名)
+                    + meaningless: 如果操作数全相同(因为部分操作数被替换了)，则`VN[target]=source`
+                    + redundant: 如果右边和另一个Phi完全一样，则`VN[target1]=target2`
+                    + normal: `VN[target]=target`
+                + 对于普通操作:
+                    + renaming各个operand
+                    + 如果在hash表中发现冗余，则`VN[target]=z`并删除操作，否则`VN[target]=target`并更新hash表
+            3. 修改BB各个后继中的Phi操作数(换成值的第一次出现的名字)
+            4. 递归到dominator tree的后继BB
++ 为其他变换制造时机(Enabling other transformation)
+    + Glossary
+        + Backward branch: a CFG edge whose destination has a lower depth-first number that its source, with respect to some depth-first traversal of the CFG
+        + False sharing: the illusion of a constraint introduced by naming is often called false sharing
+    + 有一些辅助性的变换，主要意图是为其他变换创造或暴露时机，通过改变代码形式使之更容易优化
+        + Loop unrolling(Loop unwinding): 不但减少了循环判断的次数(运行时代价)，通过拷贝代码，为冗余消除、指令调度、寄存器分配，都提供了优化机会
+        + Inline substitution: 消除了两大主要optimization blocker之一的过程调用(另外一个是ambiguous value)，不但移除了运行时的过程抽象代价(linkage code)，也为编译期的静态分析提供了机会
+        + Tree height balancing: 为指令调度提供机会
+    + 超级块复制(Superblock cloning)
+        + 给定循环入口BB和循环结束BB，可以通过一趟递归，遇到分支则分别递归，遇到多前驱BB，则拷贝使之只有一个前驱(同时进行BB合并)，这样会得到一个大的EBB。通过BB复制将循环体转换成一个单独的EBB，使得循环体的优化，从全局优化降低成区域优化，从而得到更多的优化机会。
+        + 收益:
+            + 移除了循环体中的join point，每个分支中的拷贝，其实是一个特化版本，SCCP等常量传播算法更有发挥余地
+            + 拷贝的同时进行的BB合并，相比原来的版本实际上少了一次分支跳转
+            + 出现更大的BB，允许进行更好的局部优化
+        + 缺点: 
+            + 代码增多，icache压力增大，有变慢的风险
+            + 以小尺寸为优化目的的变换中不能使用
+    + 过程复制(Procedure cloning)
+        + 通过拷贝过程，来根据调用上下文为不同的版本生成特化的代码从而优化
+            + Interprocedural constant propagation中，如果部分callsite上，实参是常数c1，另外的callsite上，实参是常数c2，标准算法中，会导致形参被推断为bottom element，而通过procedure cloning，两个版本的过程体分别把形参特化为c1、c2，进而进行全局常量传播
+            + 带引用参数的过程，部分callsite上，实参有歧义，其他callsite上实参没歧义，过程拷贝过后，无歧义的版本可以进行promotion优化
+    + 循环提取(Loop unswitching)
+        + 如果循环体中的条件分支操作数是region constant，那么，可以将分支判断从循环中移到循环外
+        + 直接影响是避免了运行时的判断，另外，它简化了循环体中的CFG，为指令调度、寄存器分配、常量传播等都提供了时机，特别的，如果原来的某个分支中包含循环不变量，unswitching过后也给LCM的loop-invariant code motion提供了机会。
+    + 重命名(Renaming)
+        + 通过encode value identity into name space，很多基于lexical identity的算法得到了优化机会
+            + 典型的如在LCM之前增加一趟DVNT
+        + 如果在指令调度之前先进行寄存器分配，由于后者会复用寄存器进行缓存，实际上增加了数据依赖，隐藏了部分指令调度的时机
++ 高级主题(Advance topics)
+    + Glossary
+        + Region constant: a value that does not vary within a given loop is a region constant for that loop
+        + Induction variable: a value that increase or decrease by a constant amount in each iteration of a loop is an induction variable
+        + Candidate operation: an operation that can be reduced in this way. Its operand are region constant and induction variable
+        + Optimization sequence: a set of optimizations and an order for their application
+        + Strongly connected(强连通的): 有向图中的两点i, j，同时存在从i到j和从j到i的路径
+        + SCC(Strongly connected component): 最大连同子图。子图中任意两点都是强连通的
+        + SSA Graph: 以每个SSA定义为节点，对该定义的每个引用，和定义之间构成了一条边，这样得到的是一个有向图
+            + SCCP使用的是从定义指向使用的SSA graph
+            + OSR(Operator strength reduction) + LFTR使用的是从使用指向定义的SSA graph，特别的用到了其中的SCC
+    + 有时候，同时进行两项优化可以产生以任意组合顺序分别独立应用二者时无法达到的结果
+        + `SSCP + Unreachable code elimination -> SCCP`
+        + `OSR + LFTR + Dead code elimination`
+    + 稀疏条件传播(SCCP, Sparse conditional constant propagation)
+        + SCCP效果优于SSCP+不可达代码消除，是因为，常量传播和不可达代码消除二者往往是相互依赖的
+            + 如果常量传播依赖于不可达代码消除(在Join point上，值不同的两个常数经过Phi变成了bottom element，但其中一个分支其实是不可达的)，则应该先死代码消除再常量传播
+            + 如果不可达代码消除依赖于常量传播(CBR的结果是一个常数)，则应该先常量传播再死代码消除
+            + 如果二者互相依赖，则，无论以任何顺序来安排，总不能一趟优化，需要不动点迭代，此时SCCP更优
+        + 算法: 类似于SSCP，不过初始化的时候并不加入所有的常数定义，而是只加入入口BB的后驱，然后开始传播；传播的时候，从定义传播到使用
+            + 对于Jump，直接加入后驱BB
+            + 对于CBR，条件值推断为top element的时候，不加入后驱；推断为常量时，加入对应的后驱；推断为bottom element时，加入两个后驱
+    + 强度削减(Strength reduction)
+        + OSR(Operator strength reduction)
+            + 首先识别IV，然后再寻找候选操作，然后通过创建新的IV，来将候选操作替代成对新IV的引用，使得循环内的候选操作这项计算被移除，达到强度削减的目的。此时原IV可能仍被循环判断的CMP引用，需要追加一趟LFTR来移除，最后进行死代码消除
+            + 概念
+                + Induction variable: 循环的迭代变量。具体来说，在SSA graph中，IV的定义构成一个SCC，并且此SCC中，只包含两种操作：
+                    1. Phi, 操作数分别是IV和循环外的初始值
+                    2. `+`、`-`操作加上IV和RC构成的IV更新动作
+                + Region constant: 字面值，或者其定义所在BB支配循环入口的变量
+                    + 换句话说，RC的定义依赖于IV，需要检测IV的header操作所在BB是否被RC的定义BB支配
+                + Candidate operation: 两个操作数分别是IV和RC，然后操作本身是可削减形式，比如`I + C`、`C + I`、`I - C`、`I * C`、`C * I`
+                    + 对于加减法，削减的方式是，创建新的IV，初始值改变C，循环增量不变
+                    + 对于乘法，削减的方式是，创建新的IV，初始值乘以C，循环增量乘以C
+                    + 更新初始值和循环增量，要么进行constant folding，要么在循环入口的支配者BB中定义新的RC
+            + 算法
+                1. 在SSA graph中查找SCC: tarjan算法，不动点，每次取一个没访问的定义节点开始DFS
+                    1. 对于访问的每个节点，压栈，给予编号，并记录，从它的后驱能够达到的最低编号
+                    2. 如果它的后驱没访问过，则递归；如果访问过，并且还在栈上，则发现SCC，更新当前节点的最低编号，这个值会传播到栈上的前驱中
+                    3. 访问后驱过后，如果当前节点的最低编号小于自身编号，直接返回；如果等于自身编号，则弹出栈上节点直到本节点，一起构成一个SCC
+                2. 识别IV的SCC: SCC中的节点要么是Phi，要么是操作数是IV和RC的增量运算，则该SCC是IV的SCC，将其中所有定义的header指向SCC中的最低编号
+                3. 识别非IV的SCC，并定位其中的候选操作，然后替换
+                4. 替换：从候选操作的操作数IV的定义开始，沿着操作数递归，如果操作数的定义在SCC中，则拷贝并递归，如果不是，则以要削减的RC和Op进行reduce
+                    + 这里的reduce，针对的操作数可能是IV的初始值或者增量(当削减Op是乘法时)。如果操作数本身又是外层循环的IV，则递归的进行削减；否则，在循环的支配者BB中创建新的定义并引用(也可能直接进行constant folding)
+            + 效果: 输入IV环，以及对环中某个定义的候选操作引用，输出新的IV环，新环的初始值和增量可能有变化，原来的候选操作被替换成从新IV名字的复制
+                + 考虑到后面的LFTR趟，还应该增加一条旧IV环到新IV环的包含Op、RC的边，用来更新可能的CMP的RC操作数
+            + 例子:
+                + 多维数组的访问，首先，高维访问相对内循环是loop-invariant，可以进行code motion；而最低维的访问，是`i*sizeof(element)`，可以进行强度削减
+        + LFTR(Linear function test replacement)
+            + 通过将循环判断使用的原始归纳变量替换成最终的归纳变量，来消除对原始归纳变量的引用，从而能够进行彻底的死代码消除。替换的同时，也要替换掉CMP的另一个region constant操作数
+            + 循环判断条件的识别，可以依赖OSR，即一个操作CMP，其操作数是IV+RC
+            + 在进行OSR的时候，削减的相邻IV之间，可以通过一条边记录削减的操作和操作数，比如`+@a`、`-1`、`*4`。因此，当发现CMP后，替换IV为最新的IV的同时，可以提取两个IV之间的变换路径，应用到另一个RC操作数上
+    + 选择一种优化序列(Choosing an optimization sequence)
+        + 变换的有效性取决于几种因素，导致了优化序列问题的出现
+            + 优化的时机在代码中出现了吗？
+            + 此前的某个变换是否隐藏了某个当前变换需要的时机？
+                + 比如将`a*2^b`进行强度削减变成`a<<b`，这可能导致后续的利用乘法可交换性进行的指令调度效果减弱
+            + 是否此前的变换已经消除了当前变换的低效性？
+        + 变换之间的相互作用使得难于预测单一变换序列带来的改进
+        + 优化序列的空间很大，编译器在搜索好的变换序列时，可以采用启发式技术:
+            + 遗传算法
+            + 随机化搜索算法
+            + 统计机器学习
+        + 实际中可能采用的方法：
+            + 编译器可以整体考虑一组具有代表性的应用程序，从而发现良好的通用优化序列，然后将这些序列作为编译器的默认优化序列。
+                + 即，搜索序列空间，找出得分最高的序列作为默认配置
+            + 推导少量良好的优化序列分别用于不同的应用程序集，在实际编译时，编译器分别尝试这些序列并采用最优结果。
+                + 即，搜索序列空间，分别对每种典型程序找到最优序列，对于实际输入的程序，尝试每种类型的最优序列，取最优者

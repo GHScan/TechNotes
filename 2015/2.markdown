@@ -1,0 +1,767 @@
+#### 1. Engineering a compiler. 第5章，中间表示
++ 简介(Introduction)
+    + 所谓IR，即Intermediate representation
+    + 在编译的各个pass之间，应该传递一种能够作为整个程序权威表示的IR(definitive IR)，它包含了程序的完整语义，以及编译的过程中推断出来的中间信息；过程中可能会创建衍生IR(derivative IR)用于特定目的，如DAG(Directed acyclic graph)、CFG(Control-flow graph)、Data dependence graph、Call graph
+    + IR可以从3个方面分类
+        1. 结构性的组织(Structural organization)
+            + Graphical IR: 如Parse tree、AST、DAG、CFG、Data dependence graph、Call graph
+            + Linear IR: 如One-address code、Two-address code、Three-address code、SSA(Static single-assignment form)
+            + Hybrid IR: 如用CFG来表示控制流，而CFG中单个节点所代表的Basic block用三地址码来呈现
+        2. 抽象层次(Level of abstractions)
+            + 不同的抽象层次因为表达粒度不同，在优化等方面各有用途，比如接近源码层次树形IR很容易发现数组引用和函数调用的实参，而底层线性IR则很难发现这些事实；另一方面，上层IR可能没有表达变量的存储方式，而底层IR则编码了这些信息，并可针对它们进行优化
+            + 底层IR也可以包含类似min、max、memcpy等常见模式，通过将这些抽象暴露给底层，从而使得这些操作有机会得到特殊优化
+        3. 命名机制(Naming discipline)
+            + 可以考虑根据值和无副作用的基本操作的组合来命名临时变量，从而达到value numbering的效果，避免冗余计算等；因为这种类似DAG的操作，要求无副作用，因此，针对赋值、非纯函数调用等副作用，可以通过重命名变量来使得变量的值、类型都不可变，于是可以安全的缓存计算；相比随意的重命名变量，考虑到在Basic block的入口，需要汇集前驱基本块的原始变量的值，所以，重命名的时候，保留原始变量的信息更好，这就是SSA的做法
++ 图IR(Graphical IR)
+    + 各种图IR在抽象层次、与底层代码的关系、结构等方面，各有不同
+    + Parse tree: 一般只用于讨论语法分析和Attribute grammar中。
+    + AST
+        + 抽象层次接近源码，一般语法分析器可以直接创建
+        + 被很多编译器和解释器使用
+        + 常用于源到源的转换系统，可以轻易生成源代码
+        + Lisp的S表达式本质上就是AST
+    + DAG(Directed acyclic graph): 通过重写AST中重复子表达式得到，一般用作节省空间或消除冗余计算(此时只是中间过程的衍生IR)
+        + 共享节点要求无赋值、无副作用
+    + CFG(Control flow graph): 控制流图对基本块间的控制流动建立了模型
+        + 基本块(Basic block): 无分支的最长操作序列。操作总是全部执行，除非触发异常。每个基本块可能有多个后驱(Jump对应1个后驱，CBR对应2个后驱，Jump register对应N个后驱、TBL对应K个后驱)
+        + 一般为简化讨论，假设CFG只一个入口(多个入口的时候，可以通过建立N0，并连接N0到所有入口得到)，和一个出口(多个出口的时候，建立Nk，并连接所有出口到Nk)
+        + 有循环的时候，CFG可能是带环图
+        + 相比采用基本快作为CFG的基本单位，另一种选择是使用单语句块(Single statement block)作为基本单位，优点是创建简单，缺点是CFG节点规模太大
+        + 可以轻易从线性IR创建CFG
+        + 指令调度和全局寄存器分配都可能依赖CFG
+    + Data-dependence graph: 模拟代码片段中值的定义和使用之间流动的图
+        + 每个节点表示线性IR中的一个语句，节点间的每条有向线段，表示值的定义到值的使用，对应值必须先定义再使用的约束
+        + 依赖图表示的代码片段的执行顺序，是一种partial order，比Linear IR中的implicit order更弱，这就给诸如指令调度的优化提供了重排(rearrange)的余地，使得out-of-order优化成为可能
+        + 可能需要编码控制流信息
+        + 难点是数组/指针的引用。粒度太大，比如考虑整个数组，则意义不大；降低粒度去分析数组/指针的槽，则需要精确的分析(编译期模拟运行时行为是不可能彻底的)
+    + Call graph: 用来表示过程间调用关系的图，每个节点表示一个过程，每条边表示一个Call site
+        + 为解决跨过程边界的效率低下问题，一些编译器需要过程间分析优化(Interprocedural analysis and optimization); 为表示运行时过程间控制转移，编译器使用调用图
+        + 术语
+            + Interprocedural: Any technique that examines interactions across multiple procedures is called interprocedural
+            + Intraprocedural: Any technique that limits its attension to a single procedure is called intraprocedural
+        + 一些工程因素和语言特性使得Call graph构建复杂
+            + Separate compilation
+                + 一些编译器为编译单元(compilation unit)中的所有过程建立部分调用图(partial call graph)，并在该集合上进行分析和优化。在这样的系统中要进行过程间分析，要一次性传递所有源码给编译器。
+                + 现在的一些C/C++编译器开始在link edit time进行过程间优化；JVM等JIT编译器在loading time或execution time进行过程间分析
+            + First class function: 这往往被实现为`call r`，直接的，应该建立该调用点到所有过程的边；编译器应该进行分析，以限制这里的边的集合
+                + CFG中也存在类似问题，由于`jump r`的存在，该基本块的后驱应该是其他所有基本块；通过类似tbl的指令，显示的枚举目标基本块的集合，从而限制后驱数量
+            + Runtime polymorphism(如Subtyping): 这里的二义性调用，需要引入更多的类型信息才有可能解决
+                + 部分语言可以通过分析类层次来消除二义性(比如C++/Java的虚函数内链)，其他语言只能在运行时通过Type feedback来处理
++ 线性IR(Linear IR)
+    + 使用线性IR的原因
+        + 输入的源码是线性，输出的目标码也是线性
+        + 早期编译器作者是汇编出身，采用汇编作为IR符合直觉
+        + 相比data-dependence graph的partial order，线性IR定义了一种确定的顺序
+        + 如果definitive IR使用线性，则必须编码控制流。一般通过Jump和Conditional branch来表达
+            + 一般硬件ISA的CBR使用一个跳转目标，通过为IR设计两个跳转目标(Taken branch和Not-taken branch)，避免了Fall-through branch
+    + 单地址码(One-address codes mode)
+        + 模拟累加器(Accumulator machine)、栈机器(Stack machine)
+        + 易于生成、易于优化(实际的寄存器分配策略可以后期决定)、空间占用小(所以常被叫做Bytecode，易于传输)
+        + 很容易转换成三地址码等
+        + 从抽象层次上来说，也允许使用max、min、mvcl等高层指令
+        + Smalltalk 80和JVM、CLR
+    + 两地址码(Two-address codes mode) 
+        + 模拟了有破坏性操作(Destructive operation，即一个源操作数寄存器会被改变)的机器，由于内存限制越来越不重要，已经很少使用了
+    + 三地址码(Three-address codes mode)
+        + 类似RISC指令，即两操作数及目标，往往四字节就可以表示一个指令了
+        + 易于生成、易于优化
+        + 从抽象层次上来说，也允许使用max、min、mvcl等高层指令
+        + SSA
+    + 线性IR的表示
+        + 可以使用指令的链表，由于允许高效的扩容，所以很适合被用在前端，此时的指令规模未知
+        + 指令指针的数组，或者4元组(两操作数+目标+操作符)的数组。由于数组允许线性索引，所以在指令调度阶段的重排中很合适
+    + 一些编译器的选择
+        + IBM的Fortran H，使用三地址码(四元组)和控制流图组合
+        + GCC，要求每种语言实现GIMPLE接口(树IR)，然后根据GIMPLE建立SSA，得到RTL(Register transfer language)进而优化
+        + LLVM，静态类型的三地址码，支持数组、结构、向量(SIMD)，对于标量使用SSA
+    + 根据线性IR建立CFG
+        + 遍历IR，每发现一个Label即创建一个新的基本块；检查每个基本块的结束指令，如果是JUMP，则创建边连接到目标块；如果是CBR，建立两条边到Take branch和Not-taken branch的基本块；如果是JUMP r，则建立边连接到所有的基本块
++ 将值映射到名字(Mapping values to names)
+    + Naming temporal value: 根据源操作数及运算符来为临时值命名，从而将值的信息编码到名字中，为优化提供了可能。这里类似DAG的value numbering优化，要求无副作用。
+    + SSA Form: 每个定义(definition point)都有不同的名字，在控制流合并的位置插入Thi函数
+        + SSA encodes both control and value flow。
+        + Thi函数的行为取决于运行时的控制流，根据源基本块的不同，本基本块开头的一组Thi函数会进行并行的赋值
+        + 在三地址码中表达Thi函数，操作数不止2个，因此该条指令可能较大
+        + 将线性IR转换成SSA的方法：深度遍历基本块集合，对于每一次变量赋值，重命名到更大编号；在下一个基本块开头添加Thi函数并重命名。相比后文的专门的SSA构建算法，这里的简单方案得到的Thi操作较多，有待优化
+    + 内存模型(Memory models)
+        + Register-to-register model: 编译器激进的将所有值保存在寄存器中，只当语义需要才将值写回内存(如跨函数边界的非局部变量、传递局部变量地址给另一个函数)
+            + 后续的寄存器分配算法，可能由于物理寄存器数量太少，而增加额外的store(Register spilling)、load指令，造成指令规模增大
+        + Memory-to-memory model: 将所有值保存在内存中，仅当需要才将值加载到寄存器，操作过后再写回内存
+            + 后续的寄存器分配算法，会优化掉多余的store、load操作，从而使得指令规模更小
+        + 一般IR的选择和内存模型的选择是正交的
+        + RISC更倾向于选择R2R模型，因为它更符合RSC的ISA，只需要少许调整
++ 符号表(Symbol table)
+    + 为避免每次引用一个符号时，搜索IR去寻找定义，所以使用中央存储即符号表
+    + hash表可以用做稀疏图(sparse graph)，缺点是无法进行遍历，比如查找某节点的所有后继节点
+    + 避免hash算法退化的一种方法是，改用multiset discrimination，即，直接从词法分析器拿到所有token的集合，然后排序，并为每个不同的lexeme分配一个id作为hash值；即通过离线算法得到完美hash
+    + 为将嵌套词法作用域(lexical scoping)的程序的每个变量引用映射到对应的定义，需要lexical scoped symbol table
+        + 这个查找过程称为name resolution
+        + 这里的scoped hash table也可以用来优化，比如被用在super local value-numbering中
+        + 变量在相应存储区中的偏移量的(level, offset)对，被叫做静态坐标(static coordinate)
+    + 符号表还会被用作Structure table，即用来管理自定义类型的名空间。符号表在这里有几种用法：
+        + Separate table: 即每个结构一个表。优点是允许枚举单个结构的名空间，并允许和scoped hash table类似的处理流程
+        + Selector table: 用限定的前缀以及字段名(field-selector)组成的table，在公共的表中索引
+        + Unified table: 在全局符号表中索引
+    + OO语言如Java的嵌套作用域更复杂，包括函数本身的作用域、外层词法作用域、类的名空间、父类的名空间、当前包的名空间(涉及跨文件符号)、import包的名空间
+    + hash表还可以用作pure function的memoizing等
+
+#### 3. Engineering a compiler. 第6章，过程抽象(The procedure abstraction)
++ 简介(Introduction)
+    + 术语
+        + Caller: in a procedure call, we refer to the calling procedure as the caller
+        + Callee: in a procedure call, we refer to the procedure that is invoked as the callee
+        + Function: the callee may return a value to its caller, in which case the procedure is termed a function
+        + Linkage convention: an agreement between the compiler and operation system that defines the actions taken to call a procedure or function
+            + 也叫做calling convention?
+        + Actual parameter: a value or variable passed as a parameter at a call site is an actual parameter of the call
+        + Formal parameter: a name declared as a parameter of some procedure p is a formal parameter of p
+    + 过程提供了三个关键抽象，使得我们能构建重要程序
+        + Procedure call abstraction: 使得程序员可以调用其他人的代码或库/系统服务
+        + Name space: 过程有一个新的、受保护的命名空间，使得过程在不同的上下文中调用的时候，都可以正确一致的运行
+        + External interface: 定义了大型软件系统各个部分之间的接口，程序员和编译器不用关注callee的细节
++ 过程调用(Procedure calls)
+    + 术语
+        + ALL: Algol-like language
+        + Activation: a call to a procedure activates it, thus, we call an instance of its execution an activation
+        + Closure: a procedure and the runtime context that defines its free variables
+        + Execution history:
+        + Call graph:
+    + 分析caller-callee关系的一个关键数据结构是call graph，它表示了过程之间发生的各个调用(call site)；虽然call graph捕获了源码定义中的静态关系，但它未能捕获动态关系如调用次数
++ 命名空间(Name spaces)
+    + 术语
+        + Scope: in a algol-like language, scope refers to a name space, the terms is ofen used in discussion of the visibility of names
+        + Lexical scope: scopes that nest in the order that they are encountered in the program are often called lexical scopes; in lexical scoping, a name refers to the definition that is lexically closest to its use, that is , the definition in the closest surrounding scope
+        + Dynamic scoping: a free variable is bound to the variable by that name that was most recently created at runtime
+        + Static coordinate: for a name x declared in scope S, its static coordinate is a pair (l,o), where l is the lexical nesting level of S and o is the offset where x is stored in the scope's data area
+        + Activation record: A region of storage set aside to hold control information and data storage associated with a single instance of a single procedure
+        + Activation record pointer: To locate the current AR the compiler arranges to keep a pointer to the AR, the activation record pointer is a desgined register
+        + Leaf procedure: a procedure that contains no calls
+        + Just-in-time compiler: Schemes that perform some of the tasks of a traditional compiler at runtime are often called just-in-time compilers or JITs. in a JIT, compile time becomes part of runtime, so JITs place an emphasis on compile-time efficency
+        + Direct superclass: 
+        + Closed class structure: If the class structure of an application is fixed at compile time, the OOL has a closed hierarchy
+            + 于是，依靠类层次结构信息，方法内部的name resolution可以在编译期进行
+            + C++ has a closed class structure, any functions, other than virtual functions, can be resolved at compile time, virtual functions require runtime resolution
+        + Open class structure: If an application can change its class structure at runtime, it has an open hierarchy
+            + 比如，Java支持运行时import类(loading time?)，Smalltalk允许运行时修改类
+        + Name resolution:
+        + Dispatch: The process of calling a method is often called dispatch, a term derived from the message-passing model of OOLs such as Smalltalk
+        + Method caches:
+        + Inline method cache:
+        + Fully qualifed name:
+    + 词法作用域(lexical scoping)背后的一般原理很简单：在一个给定的作用域中，每个名字引用在词法位置上与之最接近的声明
+        + 词法作用域中，编译器可以为每个名字分配静态坐标，进而在最终的代码生成中给出地址
+        + 与词法作用域相对的是动态作用域(dynamic scoping)，在早期的解释器中它很容易实现，但在编译器中高效实现比较困难。动态作用于仍然存在于一些语言如Common lisp中
+    + ALL语言的运行时支持
+        + 为实现过程调用和作用域化的命名空间这两个孪生抽象，编译器用到一个同时涉及控制和命名两方面的关键数据结构，活动记录(Activation record)。原则上，每次过程调用都会产生一个新的AR
+        + 常见的AR包括:
+            + 参数区(Parameters)
+            + 返回地址(Return address): ret过后caller代码段的地址
+            + 返回值(Return value): 指向caller接收返回值的地址
+            + 寄存器保存区(Register-save area)
+            + 调用者的ARP(Caller's ARP)
+            + 局部数据区(Local-data area)
+                + 一般寻址变量的时候，使用`Rarp + immediate`，如果遇到可变大小的变量(如C99的变长数组)，可能需要增加额外的间接寻址
+                + 静态变量存储在静态数据段，由loader来初始化；自动变量存储在AR中，由专门的代码初始化
+            + 可寻址性(Adressability): 用来寻址free-varaible的指针，根据实现不同，可能是access link(static link，指向上一层ARP)，也可能是GD(global display)上一level的指针
+        + AR中的字段，一般区分静态长度部分，和可变长度部分(参数区和局部变量区)，通过将可变部分布局在两端，从而允许函数无关的遍历AR
+        + 分配AR
+            + 栈分配: 如果语言不支持first class function，不允许closure作为返回值，那么，AR的生命期满足LIFO，因此AR的分配可以直接用native stack
+                + 对free-variable的寻址可以使用GD，即静态坐标(l,o)中的l，可以直接取GD数组l位置处的最近AR，然后寻址o对应的局部变量。bound variable的寻址总是一次`load a, imm`，而free-variable的寻址也是O(1)的，只是多一次间接寻址
+            + 堆分配: 如果语言允许closure作为返回值，那么，callee的AR可能被引用住(在callee内部创建closure)，生命期超过caller的AR，从而不满足LIFO，只能使用AR链，形成树
+                + 对free-variable的寻址可以使用access link(static link)，即沿AR链上溯(lm-ln)次(这里的(lm-ln,o)是静态距离坐标，static distance coordinate)，然后寻址o；bound varaible寻址是O(1)的，free varaible寻址是O(k)的
+            + 静态分配：compile time binding的leaf procedure作为callee的时候，caller知道callee不会再调用，所以可以直接将callee的AR分配在静态区(应该是线程安全的，比如TLS)
+            + 合并分配：如果a->b->c总是无条件调用，那么，可以考虑调用a的时候一次性分配a+b+c的AR
+    + OO语言的命名空间
+        + 传统的先收集程序所有的信息再处理的策略，对某些OO语言不可行，它们的一些特性导致直到运行时才能推断命名空间，这依赖解释器或JIT
+        + OO术语: Class, Object, Inheritance, Receiver(方法调用总是相对某个对象的(runtime dispatch)，即this/self)
+    + OO语言的运行时支持
+        + 由于对象的生命期和过程调用无关，因此需要专门的OR(Object record)来保存状态
+        + 一个典型的OO语言OR组织:
+            + 对象OR：类指针 + 方法表指针 + 成员字段集合
+                + 对于Closed class hierarchy，方法表中包含了继承得的所有方法；而对于可能频繁变化的Open class hierarchy，方法表可能只包含类自身的方法，父类的方法需要沿链表上溯
+            + 类OR：类指针(指向根class) + 方法表指针(基本为空) + 方法集合，其中类指针和方法表指针，所有class OR都相同
+        + 方法调用: 总是相对对象的runtime dispatch，因此一般是从OR上取得方法表指针，再取得方法，最后调用；如果是开放类结构，可能需要沿继承链搜索方法(可以用method cache优化)
+        + OR布局
+            + 对于单根继承，可以总是在superclass的字段后追加本类的字段，这样的OR在传给superclass的方法时，仍然是兼容的，这种做法叫prefixing
+                + 对于多重继承，subclass可能需要将没有override的非prefix的superclass方法，用thunk(或者说trampoline)来wrap一下，使得this指针在进入方法前增加一个偏移、退出方法后减小一个偏移
+            + 如果class structure很少改变，可以由解释器/JIT在每次改变后调整OR布局和方法表，这样总的开销仍然可控
+            + 如果class structure频繁改变，使用OR链、方法链，性能可能更高
+        + 分派
+            + Closed class hierarchy中，像C++这样的静态语言，可以将除虚方法之外的其他方法做static dispatch；如果C++编译器能够证明某个虚方法调用的receiver不会变，也可以直接生成调用，进行静态分派
+            + Open class hierarchy
+                + 结构很少改变：每次改变后重建OR和方法向量
+                + 结构频繁改变：使用OR链和方法链，只记录当前类数据，在进行runtime name resolution的时候沿链搜索
+                    + 为降低搜索开销，可以引入method cache，即用一个hash表来缓存查找结果(可以采用least recently used策略)
+                    + 更进一步的，根据type locality，同一个call site的receiver类型很少变化，即方法调用往往是单态的，所以可以进行inline method cache
+                + 可以通过运行时分析，证明某个调用的接收器总是同一个类型，从而进行静态分派
+        + 多继承
+            + 对于多继承中的非prefix superclass，子类应该将没有override的方法给wrap一下，在thunk中调整self指针
++ 过程之间的值传递(Communication values between procedures)
+    + 术语
+        + Call by value: a convention where the caller evaluates the actual parameters and passes thire values to the callee, any modification of a value parmeter in the callee is not visible in the caller
+        + Call by reference: a convention where the compiler passes an address for the formal parameter to the callee, if the actual parameter is a variable(rather than an expression), then changing the formal's value also changes the actual's value
+        + Call by name: a reference to a formal parameter behaves exactly as if the actual parameter had been textually substituted in its place, with appropriate renaming
+        + Call by need: the implemention creates and passes thunks that are invoked the first time that the parameter value is actually referenced, the thunk, or promise, stores its result for subsequent references
+        + Alias: when two names can refer to the same location, they are said to be aliases
+        + Data area: The region in memory that holds the data for specific scope is called its data area
+            + Base address: The address of the start of a data area is often called a base address
+        + Name mangling: The process of constructing a unique string from a source-langauge name is called name mangling
+    + 参数
+        + 标量直接存储在寄存器中，或者直接存储在callee的AR参数区中；大型值，可能需要程序员主动指定传引用
+    + 返回值
+        + 如果返回值较小，那么可能直接通过寄存器返回，或者将值放在callee的AR的返回值slot中，由caller读取；否则由caller在AR中准备返回值空间，然后将返回值地址传给callee
+    + 可寻址性(Adressability)
+        + 静态基地址的变量: 全局和静态变量，可以通过数据区基址的标号(relocable)，加上立即数寻址
+        + 动态基地址的变量
+            + bound variable: `Rarp + immediate`
+            + free variable: 根据实现是GD或者access link，分别寻址
+                + GD对display的维护，access link对prev ARP指针的维护，在leaf procedure(compile time binding的)中是不必的
++ 标准化链接(Standardized linkages)
+    + 术语
+        + Precall sequence:
+        + Postreturn sequence:
+        + Prologue sequence:
+        + Epilogue sequence:
+        + Caller-save registers: The registers designed for the caller to save are caller-save registers
+        + Callee-save registers:
+    + 过程linkage是编译器、OS、目标机在命名、资源分配、寻址、保护这些任务上，清晰划分指责的结果
+        + The procedure linkage is a contract between the compiler, the operation system, and the target machine that clearly divides responsibility for naming, allocation of resources, addressability, and protection
+    + 过程linkage允许用户代码、系统库、其他程序库、以及其他语言过程之间的互操作性
+        + The procedure linkage ensures interoperability of procedures between the user's code, as translated by the compiler, and code from other sources, including system libraries, application libraries, and code written in other programming language
+    + 一般来说，在目标机+OS的某个组合上，所有的编译器都使用相同的linkage
+        + Typically, all of the compilers for a given combination of target machine and operating system use the same linkage, to the extent possible
+        + 这个约定一般是编译器开发者和OS开发者在系统开发早期商定的
+    + linkage将过程调用从它的每个调用环境中隔离了出来
+        + The linkage convention isolates each procedure form the different enveironments found at call sites that invoke it
+    + Save registers
+        + 将更多的代码移到prologue/epilogue  sequence中，而不是precall/postreturn sequence中，可以使目标码更小；因此后者在每个call site上都要重复
+        + 对于常驻寄存器的值(比如this)，我们倾向于callee-save，因为callee知道它是否会用、是否有必要save，而caller却没有这些信息；对于非常驻数据，我们倾向于caller-save，因为这些数据只在caller上下文中有意义，caller自己来保存
+    + 管理display和access link
+        + 一般在prologue sequence或者precall sequence中开始维护
++ 高级主题(Advanced topics)
+    + 术语
+        + Precise collector: 依靠类型信息进行精确标记、回收
+        + Conservative collector: 扫描内存，尝试识别指针。可能把普通数据识别为指针，导致垃圾不能及时释放。一般用于C语言这种缺乏运行时类型信息的系统
+    + 堆的显示管理(Explicit heap management)
+        + Multipool allocator: 一个freelist数组，分别负责不同尺寸的内存块儿的管理。关键是在free的时候根据指针计算块儿size:
+            + 方案1: 利用指针的位模式计算page number，然后在页的第1个字里面存放size
+            + 方案2: 利用指针的位模式计算page number，然后根据page number查找多级页表，从entry当中取出信息如该页的块size
+            + 方案3: 带类型的NEW和DELETE，传递size、alignemnt给底层分配器，从而避免分配器保存size的任务
+        + Arena-based allocation: 就是栈分配器，分配的时候指针加法，没有单独的free，使用完毕过后一次全部释放
+        + Debuging Help
+            + 利用boundary tag，进行越界检查
+            + 额外的一个字，链接所有allocated块，提供dump整个已分配堆的能力
+            + 额外的一个字，指向分配点的文件、行号字符串，用于跟踪泄露
+            + 存储分配的timestamp，帮助调试
+    + 隐式释放(Implicit deallocation)
+        + Reference counting: 缺点：
+            1. 释放一棵树的根的时候，会导致当场释放整颗树，耗时很长导致卡顿。对策是提供一个free链表，逐渐释放
+            2. 环。对策是reachability analysis
+            3. 由于每次赋值都更新计数，而赋值的次数远远多于分配次数，导致实际的摊还开销很大
+        + Garbage collection: the implicit deallocation of objects that reside on the runtime heap
+            + 标记阶段的任务是将所有的变量、临时值、寄存器，都识别为可达对象
+            + Mark-Sweep是O(N)的，而Copy GC是O(k)的
+            + Mark-Sweep也可以进行compaction
+            + Copy GC不需要专门的标记阶段
+            + Incremental collector也被叫做Realtime collector
+
+#### 6. Engineering a compiler. 第7章，代码形式(Code shape)
++ 简介(Introduction)
+    + Keywords: Code generation, control structure, expression evaluation
+    + The concept "code shape" encapsulates all of the decisions, larget and small, that the compiler writer makes about how to represent the computation in both IR and assembly code
+        + Careful attension to code shape can both simplify the task of analyzing and improving the code, and improve the quality of the final code that the compiler produces
+    + 编译器在给定处理器上实现大多数源语言结构时，都可以有多种方法，不同的方法使用不同的操作和途径；其中一些更快，一些内存更少，一些寄存器更少，一些能耗更低。我们将这些差别归因于代码形式
+    + 代码形式会强烈的影响到编译后代码的行为，以及优化器和后端改进代码的能力。比如:
+        + switch可以编译成线性的if-then-else、jump table、hash表、二分查找，每种方案有其适应场合，性能各不相同
+        + 加法由于Commutativity和Associativity的性质，连续加法的AST可以有多种组织形式，不同的顺序，在constant folding、value numbering面前优化的机会各不相同
++ 分配存储位置(Assigning storage locations)
+    + Glossary
+        + Physical register: a named register in the target ISA
+        + Virtual register: a symbolic name used in the IR in place of a physical register name
+        + Page: the unit of allocation in a virtual address space. The operating system maps virtual pages into physical page frames
+        + Spill: when the register allocator cannot assign some virtual register to a physical register, it spills the value by storing it to RAM after each definition and loading it into a temporary register before each use
+        + Unambiguous value: a value that can be accessed with just one name is unambiguous
+        + Ambiguous value: any value that can be accessd by multiple name is ambiguous
+    + 编译器必须为代码的各个值分别分配一个存储位置，为此，编译器必须理解值的类型、长度、可见性和生命周期；编译器必须考虑内存的运行时布局、源语言对数据区和数据结构布局的约束，目标处理器对数据位置或使用的约束
+        + 命名值的生命周期由源语言规则和代码中的实际用法确定。比如静态变量必须跨调用保持
+            + The lifetime of a named value is defined by source-language rules and actual use in the code
+        + 编译器在处理未命名值时有更大的自由度，放置在何处、保持多长时间，编译器的余地很大
+            + The compiler has more freedom in how it treats unnamed value
+        + 编译器还必须为每个值作出决定，是保存在寄存器中还是内存中，一般来说，编译器会采用一个内存模型。两种常见的策略是内存到内存模型和寄存器到寄存器模型
+            + Memory to memory model: 所有值都在内存中，计算时加载到寄存器，求值后写回内存(简单JIT可以用这个方案...)
+                + 在该方案下，后续的物理寄存器分配器环节，只是优化，而非必须
+            + Register to regsiter model: 假设有足够寄存器用于计算，只在语义需要的时候写回内存：
+                + 以引用作为参数或返回值
+                + 用户指定volatile关键字
+                + 指针或数组造成ambiguous value
+                + 后期register allocator分配物理寄存器溢出时
+                + 在该方案下，后续的物理寄存器分配器环节，是必须的，不可省略
+        + 编译器会将值集中到各个数据区，每个数据区中的值都有相同的存储类别
+            + the compiler will group together values into data areas in which each value has the same storage class
+    + 编译器、OS、CPU协作，以确保多个程序能够以时间片为单位安全执行。有关程序地址空间布局、操控和管理的许多决策超出了编译器编写者的职责范围
+        + 就地址空间而言，编译器的视角(View)是单个进程的虚拟地址空间，上面分布着代码段、数据段、栈、堆等数据区；OS的视角是，多个进程运行在各自的虚拟地址空间中，最后由OS+MMU将它们映射到物理地址空间中；CPU的视角是物理地址空间
+    + Cache相关概念: tag, line, direct-mapped cache, set-associative cache, fully associatve cache, associative search(以tag在set中搜索line，常见替换方案有random replacement, least-recently used), hit ratio=cache hit/cache miss
+        + 某些ISA向应用程序开放高速缓存提示指令，以指示prefetched、flushed
+    + Assigning Offset: 某些ISA限制了数据项在内存中的放置，比如32位整数必须按32位字边界对齐、64位整数必须从64位双字对齐，这叫做alignment rule
+        + 为了遵循alignment rule, 编译器可能会插入padding
+        + 一些语言对layout有限制，比如C的struct，要求必须按声明顺序排列，可能要求pack; 而java的class和Algol-like language的局部变量区，编译器可以自由安排顺序
+        + 当允许编译器安排顺序时，为了遵循alignment rule，编译器可以按alignment从大到小依次安排(如果不考虑性能相关的cache line、page因素的话)(甚至JVM允许将子类的字段插入到基类的padding之中)
+        + 某些ISA在jump之外还提供了call指令，它可能对AR的格式和AR的起始地址有对齐要求(如MacOSX要求AR必须16字节对齐)
+    + Relative offsets and cache performance:
+        + 可能编译器希望将两个关联值一起加载到cache中，这就需要让两个值的相对偏移尽量控制在cache line大小以内。如果只考虑两个值的相对偏移，是可以处理的，但如果考虑到各组变量的交互，那么是NP-complete的。
+        + 如果两个值的距离超过了page size(比如，其中一个值是很大的数组)，由于经过MMU的物理地址偏移是runtime binding的，编译器无法控制，其性能也就无法估量，因此编译器倾向于让频繁操作的值被放置在同一page、甚至是同一cache line中
+    + Keeping values in registers: 在寄存器到寄存器模型中，编译器倾向于将值尽量保存在寄存器中；后续的寄存器分配阶段，可能会由于物理寄存器不足某些值被spill到内存
+        + 除非：
+            + 静态分配的变量第一次使用时需要加载
+            + 传引用的参数和返回值需要加载或写回
+            + 用于通过volatile等feature显示指定
+        + 编译器可以保存在寄存器中的值称为unambiguous value
+        + 有多个名字的值称为ambiguous value，成因包括指针/引用，数组元素；对于歧义值，除非编译器能证明两个名字的值集不想交，否则每次赋值后，都必须重新加载值
+            + 为了优化指针/引用造成的pointer aliasing，编译器可能需要进行interprocedural data-flow analysis
+            + 为了优化数组元素的访问，编译器需要进行data-dependency analysis
+            + 语言特性可能帮助改善问题，如C的restrict和volatile(被用于硬件设备中断、interrupt service routine修改的变量，多线程修改的变量)
+    +  本书的简单三地址码生成规则有几个优点(每次引用值的时候都分配一个虚拟寄存器):
+        + 简化代码生成器
+        + 方便后续阶段改进分析和优化结果
+        + 避免将machine-dependent的约束写进IR中，比如字长/立即数长、寻址方式等，从而增强了编译器的可移植性
++ 算数运算符(Arithmetic operators)
+    + Glossary
+        + Rvalue: an expression evaluated to a value is an rvalue
+        + Lvalue: an expression evaluated to a location is an lvalue
+    + 现代处理器为表达式求值提供了全面支持，典型的RISC机器具有完全的三地址操作
+    + 三地址形式使得编译器能够命名任何操作的结果，避免了二地址形式的主要复杂性--destructive operation
+    + 简单的表达式代码生成可以通过后序遍历，为了减少寄存器需求，可能需要先对每颗子树计算寄存器个数，然后求值时，按寄存器数从多到少依次进行
+        + 这里编译器安排求值顺序的自由性，这么像C/C++那样，除了sequence point外不限制求值顺序(哪怕是副作用操作)；对于Java/C#这种有严格求值顺序(从左到右)的语言，只能对无副作用操作(可能需要进行过程间分析以证明某些表达式无副作用)进行乱序
+    + 本书中生成的简单三地址码，没有使用基址、偏移寻址方式，这既避免了在IR中引入机器依赖行为，也为后面的窥孔优化等提供了机会
+    + 由于精度限制，计算机的浮点数只是实数的一个子集(在数轴上非均匀)，因而没有结核性和交换性，所以编译器不能重排表达式，除非语言/编译选项允许这么做
+        + Due to limitations in precision, floating-point numbers on a computer represent only a subset of the real numbers, one that does not preserve associativity
+    + 由于函数可能具有副作用，所以编译器不能跨函数调用进行乱序求值，除非像C/C++那样不规定顺序，或者能通过过程间分析(比如通过call graph)证明无副作用
+    + 通过将类型转换操作视作一个IR指令，后续的优化步骤能将之视为整体进行消除、移动
+        + 基本类型的转换操作，要么由目标ISA提供专门指令；要么被编译器实现为机器相关的一组操作
+        + 对于用户自定义的类型转换，用户会提供转换过程
+    + 虽然赋值一般是右结合的，但它的求值顺序也可能是从左到右(比如Java)，其中，赋值号左边是lvalue，求值结果是地址，右边是rvalue，求值得到一个值
+    + 一些优化如充分利用处理器寻址模式、调度指令充分利用issue rate、寄存器分配，都无法很好的和树遍历框架(treewalk framework)集成，因此，生成最简单的IR更好
++ 布尔运算符和关系运算符(Boolean and relational operators) 
+    + Glossary
+        + Short-circuit evaluation: This approach to expression evaluation, in which the code evaluates the minimal amount of the expression needed to determine its final value, is called short-circuit evaluation
+            + 早期，短路求值是用来优化，因为可以利用布尔表达式来省掉一些计算；后来，分支操作代价已经超过了省掉的计算，反倒是full evaluation比短路求值更快；因此，编译器的任务反倒变成了证明被短路的代码无副作用(可能需要过程间分析)，可以安全的进行full evaluation
+        + Predicated execution: an architectural feature in which some operations take a boolean-valued operand that determines whether or not the operation take effect
+    + 处理器体系结构设计者在如何支持算术运算方面达成了广泛的共识，但对关系运算符的支持因体系结构而异，彼此变化颇大
+    + 表示(Representations)
+        + Numerical Encoding: assigns specific values to true and false and manipulates them using the target machine's arithmetic and logical operations
+            + 一般用1或者~0来表示true
+        + Positional Encoding: encodes the value of the expression as a position in the executable code, it use comparisons and conditional branches to evaluate the expression, the different control-flow paths represent the result of evaluations
+            + 如果一个表达式的结果从不存储，那么使用位置编码进行表示有意义的；当使用表达式的结果来确定控制流时，位置编码通常可以避免非必要操作
+    + 硬件支持(Hardware support for relational operations)
+        + Boolean-valued comparisons: 通过Comp_LT、Comp_Eq等产生boolean值，再进行and/or得到值编码或者CBR得到位置编码
+            + 适合实现值编码而非位置编码
+        + Straight condition codes: 通过Comp或者算数运算，影响条件码寄存器，之后再依据条件码寄存器进行CBR_LT、CBR_EQ等控制转移
+            + 适合实现位置编码而非值编码
+            + 当算数运算本身能影响条件寄存器时，省掉了一次Comp指令
+        + Conditional move: 在一个cycle中执行条件复制，避免了分支
+            + 很适合三元运算符如`t ? a : b`，但前提是证明b无副作用(因为无论是if还是三元运算符，明显是短路求值，clause b不一定求值的，而cmov要求先求值a、b，这就要求b无副作用)
+        + Predicated execution: cmov的增强版，通过一个boolean寄存器，来决定后面的指令要不要执行
++ 数组的存储和访问(Storing and accessing arrays)
+    + Glossary
+        + False zero: the false zero of a vector V is the address where V[0] would be, in multiple dimensions, it is the location of a zero in each dimension
+            + C语言直接
+        + Dope vector: a descriptor for an actual parameter array, dope vector may also be used for arrays whose bounds are determined at runtime
+    + 多维数组的实现一般包括三种方案
+        1. Row-major order: 当最右下标变化最快时，缓存局部性最好
+        2. Column-major order: 当最左下标变化最快时，缓存局部性最好
+            + FORTRAN使用列主序
+        3. Indirection vector: 优点是实现不规则素组(ragged array)
+            + Java等支持
+    + 当以多维数组作为参数时，有必要传递维度信息，比如每个维度的上下界，这里的信息叫做Dope vector
+        + C语言中，每个维度的长度必须指定为常量或形参，C++只能指定为常量
+        + 部分语言会由编译器建立dope vector作为实参；如果有多个call site，可能会一早建立dope vector，在不同的call site上传递同一个实例
+    + Range checking
+        + 简单的range checking是在每个引用前插入条件判断
+            + simplest implemention of range checking, as this is called, inserts a test before each array reference
+        + 更优的方案是编译器证明检查是冗余的，从而合并、移除(range checking elimination, range checking code motion)
+            + the least expensive alternation is to prove, in the compiler, that a given reference cannot generate an out-of-bounds reference
+            + optimizing compiler often contain techniques that improve range-checking code. checks can be combined, they can be moved out of loops, they can be proved redundant
++ 字符串(Characters strings)
+    + 程序语言对字符串的支持程度，可以是C语言水平，其中大多数操作都是库函数；也可以是PL/I水平，把字符串作为第一等公民
+    + 字符串操作可能是代价高昂的，所以某些CISC体系结构，提供了专门的字符串操作；而RISC，更依赖于编译器使用简单的操作来实现字符串操作
+    + 常见的字符串表示，包括以0结尾的串，和显示保存长度的串
+        + C语言最初是在DEC PDP/11上实现的，该机器支持自动后增(auto-postincrement)，所以C语言有i++操作
+    + 由于基于字指令的字符串操作实现极为繁琐(需要掩码与移位)，所以一般ISA都支持基于字符的指令
+    + 字符串拷贝(包括更泛的memcpy)，需要考虑的因素包括多字节拷贝(甚至SIMD)、对齐、是否有重叠等因素
++ 结构引用(Structure references)
+    + 成员名无歧义的引用是fully qualified name
+    + 编译器是否有权重排字段，以遵守alignemnt rule的前提下节省空间，取决于，语言是否将结构布局开放给用户
+        + C开放给了用户，所以编译器不能重排；而Java没有开放
+    + 结构数组可以被实现为AOS(array of struct，如C语言)，或者被实现为SOA(struct of array)，因字段访问方式的不同，两个方案可能在缓存局部性上有截然不同的表现
+    + 要实现类型的并，可以通过tagged union或者variant，编译器本身有强烈的动机来移除这里的type checking
+        + the compiler has a strong motivation to perform type checking and remove as many checks as passible
+    + 通过分析来消除指针引用和数组引用的二义性，是对程序性能的各种潜在改进的主要来源。对于密集使用指针的程序，编译器可以进行过程间数据流分析，以便找到每个指针可能指向的潜在对象结合；对于密集使用数组的程序，可以使用数据相关性分析来了解数组的引用模式
+        + Analysis to disambiguate pointer reference and array reference is a major source of potential improvement in program performance. For pointer-intensive programs, the compiler may perform an interprocedural data-folow analysis aimed at discovering. For each pointer, the set of objects to which it can point. For array-intensive programs, the compiler may use data-dependence analysis to understand the patterns of array reference
+        + Java由于动态加载机制，过程间分析的边界是class文件，这限制了很多潜在优化；Android是以包为发布单位，过程间分析的边界极大的扩大了，.Net也类似；C/C++的分析边界是文件，除非进行link time interprocedural optimization
++ 控制流结构(Control-flow constructs)
+    + Glossary
+        + Tail call: a procedure call that occurs as the last action in some procedure is termed a tail call. A self-recursive tail call is termed a tail recursion 
+        + Jump table: a vector of lables used to transfer control based on a computed index into the table
+    + 根据Linear code建立CFG，其中每个basic block，可以用(first, last)对来表示，也可以用一个first数组来表示整个basic block array
+    + 实现条件分支
+        + Predicated execution只适合实现简单的分支表达式，对于复杂的分支语句，会有以下问题:
+            + 相比条件分支额外的一个分支跳转，长语句所需要的谓词指令序列，需要占用一个额外的issue slot，使得最终的effective issue rate不高(比如只有1/2)
+            + 当两个分支指令数不同时，使用谓词比较麻烦
+            + 分支内嵌分支时，谓词表达式会很复杂
+        + 如果分支中一条路径频率显著高于另一条，那么可以对该分支加速，比如进行分支预测、投机执行、逻辑重排
+            + techniques that speed execution of that path may produce faster code, this bias may take the form of prediction a ranch, of exectuion some instructions speculatively, or of reordering the logic
+            + Branch predication by users
+    + 实现循环
+        + For循环有两种简单实现，其中一种只有一个CBR，尾部加上JUMP；另一种先用一个CBR做先期判断，再在尾部放一个CBR
+            + 方案2相比方案1的优点在于: 1. 循环体少一个JUMP指令 2. 循环体只有一个basic block，后前者有两个，在优化阶段效果不同(这里指循环体最简单的情况下)
+    + 实现case语句
+        + 线性查找: 一系列if-then-else，能力最强(每个case可以使任意表达式)，性能最差
+            + 一般pattern matching采用该实现
+        + 二分查找: 对各case分布无要求，只要求compile time binding
+        + hash表: 适合任意类型的case值，对分布无要求
+            + Java、.Net中对string使用switch就是经过的hash表
+        + jump table: 适合各个case分布紧凑的情况, 一般通过tbl指令来指示潜在的目标，以简化CFG
+            + C语言一般采用该实现。对于fallthrough的case，需要连续布局代码；对于table中的空槽，需要填充switch后的地址(某些语言的pattern matching在空槽中填充错误例程地址)
++ 过程调用(Procedure calls)
+    + 在满足linkage convention的基础上，一般倾向于将尽量多的代码塞进prologue sequence/epilogue sequence，而不是precall sequence/postreturn sequence，因为调用点多于定义点，前者可以减少目标码大小
+    + 求值实参时，编译器倾向于乱序以获得更好的性能(比如先求值寄存器需求多的实参)，但这受到语言规定的求值顺序限制，除非能通过过程间分析证明乱序不涉及副作用，不影响结果
+        + C/C++除了sequence point外无要求，因此编译器乱序的自由度较高
+        + Java/C#要求从左到右求值，编译器要想乱序更困难
+    + Save and restore registers
+        + 一些ISA如SPARC、POWRE、VAX上提供了多字load/store操作用来保存和恢复寄存器的某个集合
+        + 较大的寄存器集合减少了register spilling的可能，使得很多溢出操作只发生在call位置；集中在call前后的store/load操作为编译器优化提供了机会
+        + 可以通过库例程来保存、恢复寄存器，从而减少代码大小
+
+#### 10. Engineering a compiler. 第8章，优化简介
++ 简介(Introduction)
+    + Glossary
+        + Safety: a transformation is safe when it does not change the results of runing the program
+        + Profit: a transformation is profitable to apply at some point when the results is an actual improvement
+    + Keywords: optimization, safety, profitability, scope of optimization, analysis, transformation
+    + 代码优化的目标是在编译期发现有关程序运行时行为的信息，并利用该信息来改进编译器生成的代码。改进可以有许多种形式，常见的目标是提高编译后代码的运行速度；对某些程序来说，代码的长度可能比速度更重要(比如烧录到某个ROM中的程序，其长度会影响到整个系统的成本)；其他目标包括降低能耗、提高对实时事件的响应或降低内存的总访问量等
+    + 优化的机会可能是许多来源导致的
+        + 低效性的主要来源是对源语言抽象的实现。从源语言到IR的转换是一个局部过程，进行该转换时未能对外围上下文进行广泛分析，生成的IR通常是为了处理各种源语言结构的最一般形式。在具有上下文知识的情况下，优化器通常可以判断代码是否需要这种完全的一般性，如果不需要，优化器可以用更受限、更高效的方式来重写代码
+        + 优化机会的另一个来源在于目标机，编译器必须详细了解目标机影响性能的那些属性，比如功能单元的数目和能力、内存层次结构中各个层次的延迟和带宽、指令集支持的各种寻址方式、罕见或复杂操作的可用性
+            + such as the number of functional units and their capabilities, the latency and bandwidth to various levels of memory hierarchy, the various addressing modes supported in the instruction set, and the availability of unusal or complex operations all affect the kind of code that the compiler should generate for a given application
++ 背景(Background)
+    + Glossary
+        + Strength reduction: a transformation that rewrites a series of operations...
+        + Loop unrolling: this replicates the loop body for distinct iterations and adjusts the index calculations to match
+        + Observational equivalence: for two expression, M and N, we say that M and N are objservationally equivalent if and only if , in any context C where both M and N are closed, evaluating C[M] and C[N] either produces identical results or neither terminates
+        + Memory bound: a loop where loads and stores take more cycles than does computation is considered memory bound. to determine if a loop is memory bound requires details knowledge about both the loop and target machine
+    + 调试编译器(debugging compiler)强调的是编译速度，通常不会显著的重排代码，因此再源代码和可执行代码之间保持了较强的对应关系，这简化了将错误映射到源代码中特定行的任务
+    + 随着RISC处理器进入市场(以及将RISC实现技术应用到CISC体系结构)，提高运行时性能的更多负担落到了编译器头上；为了提高性能，处理器架构师转而采用一些需要编译器提供更多支持的特性，包括分支指令之后的延迟槽、非阻塞内存操作、流水线使用的增多，以及功能单元数目的增加等。这使得处理器性能易受程序布局和结构方面的高层问题的影响，而且对指令调度和资源分配等底层细节也比较敏感。
+        + these include delay slots following branches, nonblocking memory operations, increased use of pipelines, and increase numbers of functional units; these features make processors more performance sensitive to both high-level issues of program layout and structure and low-level details of scheduling and resources allocation
+    + 优化器在编译器中的已经变得司空见惯，优化使前端和后端进一步隔离开来。在一定程度上，这简化了IR的生成。
+    + 现代优化器假定后端会处理资源分配问题，因此，优化器通常是针对具有无限寄存器、内存和功能单元的理想机器进行优化。这进而对编译器后端使用的技术施加了更多压力
+    + 例子
+        + 改进数组地址计算：对于二位矩阵的寻址，直接生成的IR没有上下文信息，`m[i, j]`生成的代码是i, j的函数，包括加法和乘法；而结合上下文进行strength reduction和induction variable analysis优化过后，矩阵元素的寻址只是基址+偏移了
+        + 改进嵌套循环：经过loop unrolling(以及可能的loop fusion)后，大段相似代码的循环体，给LVN、指令选择(不同的寻址方式)、指令调度(指令数增加，无关操作也就增加，从而有机会优化pipeline的使用)优化提供了机会。
+            + 一个难点是，由于对寄存器的需求增加(Demand for registers)，寄存器分配器压力增大，有劣化的风险，必须选择合理的展开因子
+    + 每种优化的核心之处都有两个问题，即安全性(Safety)和可获利性(Profitability)；编译器必须有一种机制来证明其应用的每个变换都是安全的，即变换将保持程序的原有语义；编译器还有理由相信应用某种变换是有利可图的，即变换会提高程序的性能；如果变换可能改变语义或降低性能，都不应该应用这种变换
+    + 风险(Risk)，如果意在改进性能的变换提高了编译器生成良好代码的难度，那么这些潜在问题应该被认为是可获利性问题。
+    + 优化的时机(Opportunities for optimization)
+        + 减少抽象代价(reducing the overhead of abstraction): 如结构、数组、函数调用、指针的优化
+        + 利用特例(taking advantage of special cases): 利用上下文信息来特化操作
+            + 比如，如果C++编译器能确定某个虚函数调用总是同一个实现，那么，可以进行静态绑定甚至内链
+        + 将代码匹配到系统资源(matching the code to system resources): 
++ 优化范围(Scope of optimization)
+    + Glossary
+        + Scope of optimization: the region of code where an optimization operates is its scope of optimization
+        + Extended basic block: a set of blocks, p1, p2..pn, where p1 has multiple CFG predecessors and each other pi has just one, which is some pi in the set
+        + Dominator: in a CFG, x dominates y if and only if every path from the root to y incudes x
+        + Redundant: an expression e is redundant at p if it has already been evaluated on every path that leads to p
+    + Local methods
+    + Regional methods
+         + 选择优化的区域：EBB、CFG中的Dominator relation、One of the strongly connected components in the CFG(强连通分量)
+         + 对循环内代码的改进，要远远超过对所有循环外代码改进的效果
+         + 可能的优化:
+            1. 证明一个大量使用的指针是无歧义的，从而可以将其中的值保存在寄存器中
+            2. 特别的优化循环体对应的多个BB
+    + Global methods(Intraprocedural methods): 考虑全局优化，是因为，过程是编译的自然边界。
+        + 一般先建立CFG，再处理；如果CFG有环(循环)，则先分析(Analysis)再变换(Transformation)。其中分析可以证明安全性和可获利性
+    + Interprocedural methods(Whole-program methods)
+        + 一般基于Call graph，有时候会考虑整个程序，其他情况下可以考察源代码的一个子集
+        + 虽然暴露了更多的优化机会，但也提出了新的挑战，比如parameter-binding rules导致的复杂性
+        + 两个经典例子是inline substitution和interprocedural constant propagation
++ 局部优化(Local optimization)
+    + Glossary
+        + Lifetime: the lifetime of a name is the region of code between its definitions and its uses, here definition means assigment
+        + NaN: not a number, a defined constant that represents an invalid or meaningless result in the IEEE standard for floating-number arithmetic
+        + Ambiguous reference: a reference is ambiguous if the compiler cannot isolate it to a single memory location
+        + Observable value: a value is observable, with respect to a code fragment, if it is read outside that fragment
+        + Upward exposed: a name x is upward exposed in block b if the first use of x in b referes to a value computed before entering b
+    + Local value numbering
+        + 由于LVN进行的`d<-a-d`到`d<-b`替换，缩短了a、d的生命期，但是延长了b的生命期，它们导致的寄存器需求的变换，是有可能带来性能劣化的；由于后续的编译步骤会引入更多的变换，所以很难度量优化效果，因此，一般简单假设LVN所进行的冗余删除能改进程序
+        + 可交换、可分配运算符的表达式结合顺序，会导致LVN的优化效果的不同，一般使用启发技术(heuristic techniques)去找一个好的顺序
+        + LVN的框架，可以很容易集成其他几种优化
+            + Commutativity operator: 通过编号，确保`a + b`和`b + a`被视作冗余
+            + Constant folding: 合并过后，变成立即数加载指令，后续的copy folding优化会移除
+            + Algebraic identities: 集成一系列的数学规则。可以对每种运算符，编码一颗决策树(operator-specific decision tree)
+                + `a+0=a`、`a-0=a`、`a-a=0`、`2*a=a+a`、`a*1=a`、`a*0=0`、`a/1=a`、`a/a=1, a!=0`、`a^1=a`、`a^2=a*a`、`a>>0=a`、`a<<0=a`、`a and a=a`、`a or a = a`、`max(a,a)=a`、`min(a,a)=a`
+        + 为每个目标地址命名一个唯一值，可以得到更多的优化机会，如`a<-x+y; a<-1; c<-x+y`
+            + 如果在SSA form下，直接享受此优点
+            + 可以先以类似SSA的方式命名并优化，最后将名字还原回去，根据需要引入临时名字；这里的重命名只是一趟优化pass，应该保持和其他BB的名字兼容
+        + 指针和数组引入的歧义值的存在，导致分析可能发生错误，比如通过`*p = 1`可能修改一个局部变量；对策是，通过数据流分析和数据依赖分析来尽量消除歧义，对于仍然存在歧义的变量，`*p = 1`应该视作一个变量集合的赋值，为这个集合的变量创建新名字
+    + Tree-heigth balancing
+        + 对于可交换、可结合的表达式树，平衡树对计算施加的计算顺序约束更少，可以更好的利用处理器的多个功能单元；这里意在向指令调度器揭示更多的ILP性质，从而改进程序
+        + 步骤：找到候选树(Candidate tree)，然后重构程序使之具有平衡形式
+        + 原理: 通过将指令序列视作一系列的树，然后根据依赖关系，输出序列化后的树。其中，可交换、可结合的运算符对应的操作，如果其结果值只被引用了一次，且引用点也是相同的操作，那么，该操作会和引用点一起组成一颗更大的树，在一个后续步骤中以类似huffman编码的方式去平衡
+            + 树根：不可交换或不可结合的指令，或结果值被引用多次的指令，或结果值作为LiveOut变量的指令(这种情形可以简化成引用两次)
+            + 平衡因子是启发性的，典型的可以采用变量节点数，也可以采用子树树高
++ 区域优化(Regional optimization)
+    + Glossary
+        + Loop fusion: the process of combining two loop bodies into one is called fusion. Fusion is safe when each definition and each use in the resulting loop has same value that it did in the original loops
+    + Superlocal value numbering
+        + 针对EBB的每个path，以类似scoped symbol table的方式来管理名字到value number的映射，据此来对每个BB应用LVN
+    + Loop unrolling
+        + 可以展开内层循环；也可以展开外层循环后紧接着对内层循环进行loop fusion，这个组合一般叫做unroll-and-jam
+        + 优化:
+            + 最直接的效益: 减少循环所需的判断和分支数
+            + 在循环体内重用寻址结果，减少内存访问(通过LVN)
+            + 暴露冗余
+            + 增加指令的数量，给指令调度更大的空间
+            + 同一变量的多次出现，影响寄存器分配器的调度算法，更准确
+            + 如果合并的循环体内包含复制操作的有环链，可以消除这些复制
+        + 风险:
+            + 增大了IR规模，导致更长的编译时间
+            + 目标码尺寸增大，icache压力更大
+            + 寄存器个数需求更大，可能导致spilling
+        + 由于优点和风险并存，展开因子(unroll factor)的选择比较困难，可以使用自适应方法(adaptive approach)，让编译器尝试几个不同的因子并测量结果
++ 全局优化(Global optimization)
+    + Glossary
+        + Data-flow analysis: a form of compile-time analysis for reasoning about the flow of values at runtime
+        + Backward data-flow problem: a problem in which information flows backward over graph edges
+        + Forward data-flow problem: a problem in which information flows along the graph edges
+        + Forward branch: a branch whose target has a higher address than its source is called a forward branch, in some architectures, forward branches are less disruptive than backward branches
+    + Finding uninitialized variables with live information
+        + 这是使用全局数据流分析(global data-flow analysis)来进行live variable信息的计算，它在许多优化中都能产生作用，比如tree-height balancing、SSA form的构建、寄存器分配
+            + 其他用法：
+                + 全局寄存器分配，只有活动的值，才需要占用寄存器，否则立刻释放
+                + SSA构建，在分支的入口，只对活动的值构建Phi节点
+                + store指令，如果目标不是活动的，可以安全移除
+        + 方法是，为每个BB分别计算UEVar、VarKill集合(扫一趟BB的指令序列即可)，然后在整个CFG上利用不动点解方程组，得到每个BB在出口位置的LiveOut，CFG入口BB的LiveOut中的变量，即是未初始化变量
+            + 方程是：LiveOut(n) = Union(foreach (m in successors(n)) Union(UEVar(m), LiveOut(m) - VarKill(m)))
+        + 有几个特殊情况干扰对未初始化变量的判断
+            + 变量可能通过别名来初始化(指针)。对策：数据流分析，消除歧义；或者保守的认为已初始化
+            + 传引用的方式调用过程，在过程中初始化。对策：过程间数据流分析；或者保守的认为已初始化
+            + 变量可能在该编译单元不可见的地方初始化。对策：对于静态、全局等作用域中的变量，保守的认为已初始化
+            + 运行时不可能的CFG路径。对策，进行symbolic evaluation
+    + Global code placement
+        + 很多处理器的分支指令代价不是对称的(静态分支预测？)，可能落空分支(fall-throught branch)代价小于采纳分支(taken branch)，因此，根据profiling结果，将高频分支作为fall-through branch，可以改进性能
+            + 另一个原因是，fall-through branch有更好的缓存局部性(icache)
+        + 方法：
+            1. 通过profiling，得到CFG中每条边的频率
+            2. 通过贪心算法，使用CFG的频率信息，构建一系列的hot path。这里的hot path使得forward branch数目逼近最大值
+            3. 根据hot path重排BB得到过程的fast layout
+        + Gathering profile data
+            1. Instrumented executables: 由编译器插入代码，统计事件频率写入特殊文件
+                + 灵活性最大，可以进行各种特殊处理，比如，CFG的边执行次数，满足流量性质，因此，可以只测量边的一个子集
+            2. Timer interrupts: 工具按较高的频率触发中断，然后在中断时刻记录pc位置，抓取栈信息
+                + 由于频率关系，只能记录占总时间比例大的函数
+            3. Performance counters: 处理器提供的硬件计数器，比如处理器周期数(total cycles)、缓存失效(cache miss)、采纳分支(taken branches)
++ 过程间优化(Interprocedural optimization)
+    + Glossary
+        + Inline substitution: a transformation that replaces a call site with a copy of callee's body, rewritten to reflect parameter bindings
+        + Compilation unit: the portion of a program presented to the compiler is often called a compiltion unit
+        + Procedure linkage code: Precall/postreturn/prologue/epilogue sequence
+    + 过程抽象的影响
+        + 优点：
+            + 控制了编译任务的规模
+        + 缺点：
+            + 干扰了优化相关的静态分析(除非进行过程间分析)
+                + 过程黑盒中的副作用，导致语言受限于求值顺序，不敢随便乱序
+                + 过程的引用参数可能被修改，使得caller必须spilling值到内存，调用返回后在load
+            + Calling convention引入的运行时开销。具体来说，是precall/postreturn/prologue/epilogue几组代码的额外开销，他们和最终的计算任务没有关系，只是在进行创建AR、保存caller状态、传实参、保存返回地址以及各种restore任务
+    + Inline substitution
+        + 变换
+            + 一种简单的处理，是在call site位置上，直接插入callee从progolue sequence到epilogue sequence的代码拷贝(注意，多处return应该被处理为到最后一个BB的jump)
+            + 对于同一个(caller, callee)组合，如果存在多个call site，内链过后可能需要复用局部变量名空间以减少开销
+        + 优点：
+            + 直接效果：消除Calling convention引入的操作
+            + 提高其他优化的有效性，为全局优化提供机会
+        + 缺点：
+            + 增加名字规模，导致编译时间加长
+            + 寄存器数量增加，影响寄存器分配器
+            + 目标码变大，icache压力更大
+        + 决策过程(decision procedures)
+            + Callee size: callee尺寸很小的时候，收益很高。比如，很多过程尺寸甚至小于procedure linkage code(precall/prologue代码)
+            + Caller size: 允许caller反复执行内链直到某个长度
+            + Dynamic call count: 高频callee倾向于被内链。因为procedure linkage code的开销很大
+                + 可以profile；也可以直接估算，比如，嵌套深度x10
+            + Fraction of execution time: 占总时间很小的callee，可以不内链
+            + Static call count: 只有一个call site的callee，直接内链，移除本体
+            + Constant-valued actual parameters: 带字面值的过程内链后，结合constant propagation，在全局优化中有很多机会
+            + Parameter count: 参数个数较多的callee，procedure linkage code开销大(比如实参压栈)，考虑内链
+            + Calls in the procedure: 作为leaf procedure的callee可以内链
+            + Loop nesting depth: 嵌套在较深层次的循环中，执行频率可能较高，适合内链
+        + 一般使用上面的依据作为启发规则(decision heurisitic)
+    + Procedure placement
+        + 类似global code placement，方法是，依据profile结果，重排过程。效果:
+            + 减小虚拟内存工作集(virtual-memory working-set size)
+            + 减少icache miss
+        + 和global code placement贪心算法有一点不同的是，对于(a,b)、(a,c)两个call site，只要频率够高，将b、c安排得尽量靠近a是有意义的，因为虽然icache miss可能无法避免，但可以控制working-set size
+    + Compiler organization for interprocedural optimization
+        + 一旦在分离编译(separate compilation)系统中进行了过程间分析，那么，就必须谨慎处理由于过程间分析引入的源码之外的依赖
+            + 比如，修改了callee，那么可能也需要重新编译caller
+            + 比如，修改了一个全局变量的初始化值，那么，所有依赖于这个值的文件都需要重新编译
+        + 几种可行的结构
+            + Enlarging compilation unit: 传统分离编译，通过整合多个编译单元来利用过程间分析能力
+            + Integrated development environments: 利用IDE检测依赖关系的变更，并正确的组织编译顺序
+            + Link-time optimization: 传统分离编译，在链接时进行whole-program的过程间优化
+                + 一般只对静态链接有效，动态链接的优化受限制
+
+#### 10. Profile-guided optimization
++ Inlining
++ Virtual call speculation: insert a conditionally-executed direct call to the frequently-targeted function, and the direct call be inlined
++ Regsiter allocation: better register allocation
++ Basic block optimization: 高频basic block放在同一个set of pages，更好的局部性，最小化number of pages used
++ Size/Speed optimization: 耗时多的函数特别的优化性能
++ Function layout: 同一个execution path的函数放到相同的section中
++ Conditional branch optimization: switch的各个case测试顺序；if/else的哪个分支放在前面(icache的局部性)
++ Dead code seperation: 不常用的函数放到单独的section中，隔离到所有sections的最后面
++ EH Code seperation: EH代码被隔离到单独的section中
++ Memory intrinsics
+
+#### 15. Engineering a compiler. 第9章，数据流分析
++ 简介(Introduction)
+    + Glossary
+        + Join point: in a CFG, a join point is a node that has multiple predecessors
+    + Keywords: Data-flow analysis, SSA form, Dominance, Constant propagation
+    + 静态分析通常从控制流分析开始，以理解各个操作之间的控制流，控制流分析的结果是控制流图。接下来，编译器分析值是如何流经代码的，编译器使用分析得到的信息来寻找改进代码的机会，并证明变换的安全性。优化相关的研究人员已经开发了全局数据流分析方法来回答这些问题
+    + 静态单赋值形式是一种中间表示，它在一种稀疏的数据结构中合并了控制流分析和数据流分析的结果
+    + 如果方法的输入局限于树的控制流图(如LVN、SVN)，那么该方法是可以在线执行的；如果方法必须处理CFG中的环(如GVN)，则他需要离线执行，在分析过程完成后才能开始重写代码
++ 迭代数据流分析(Iterative Data-flow analysis)
+    + Glossary
+        + Dominance: in a flow graph with entry node b0, node bi dominates node bj, written bi >> bj, if and only if bi lies on every path from b0 to bj. by definition, bi >> bi
+        + Meet operator: in the theory of data-flow analysis, the meet operator is used to combine facts as the confluence of two paths
+        + Postorder number: label the nodes in the graph with their visitation order in a postorder traversal
+        + Reverse CFG: The CFG with its edges reversed; the compiler may need to add a unique exit node so that the reverse CFG has a unique entry node
+        + Flow insensitive: this formulation of MayMod ignores control flow inside procedures, Such a formulation is said to be flow insensitive
+    + 支配性(Dominance)
+        + Dom(n) = union({n}, intersect(for p in predecessors(n) yield Dom(p)))
+        + 是一个正向数据流问题
+            + 正向数据流问题，应该以RPO来迭代；反向数据流问题，应该用RPO for reversed CFG
+        + 作用
+            + 其中Dominator frontier可以用于semipruned SSA构建中插入Phi
+    + 活跃变量分析(Live-variable analysis)
+        + LiveOut(n) = union(for s in successors(n) yield union(UEVar(s), LiveOut(s) - VarKill(s)))
+        + 是一个反向数据流问题
+        + 迭代数据流算法的可停止性(Termination)归功于单调性和底层集合的值空间有限这两个因素，这一性质通常称为有限递降序列性质(finite descending chain property)
+        + 作用
+            + Tree-height balancing判断根
+            + SSA构建判断是否插入Phi
+            + global register allocation
+            + 删除冗余store
+    + 可用表达式(Available expressions)
+        + AvailIn(n) = intersect(for p in predecessors(n) yield union(DEExpr(p), AvailIn(p) - ExprKill(p)))
+            + DEExpr是down exposed expression，即一次定义(赋值)；而对该定义的操作数的定义，将导致ExprKill
+        + 作用
+            + 用于全局冗余消除(global redundancy elimination, 又称全局公共子表达式消除, global common subexpression elimination)
+                + Lazy code motion是一种更强的公共子表达式消除，它也利用了表达式可用性
+    + 可达定义(Reaching definitions)
+        + Reaches(n) = union(for p in predecessors(n) yield union(DEDef(p), Reaches(p) - DefKill(p)))
+        + 作用
+            + minimal SSA构建中的Phi确定
+    + 可预测表达式(Anticipable expressions)
+        + AntOut(n) = intersect(for s in successors(n) yield union(UEExpr(s), AntOut(s) - ExprKill(s)))
+        + 作用
+            + Code hoisting: 一是减小运行时开销，二是减小代码尺寸
+    + 过程间综述问题(Interprocedural summary problems)
+        + MayMod(p) = union(LocalMod(p), for c in callsites(p) yield unbind(MayMod(c)))
+            + MayMod: interprocedural may modify
+            + MayRef: interprocedural may reference
+    + 局限性(Limitation)
+        + Control flow limits the precision of data-flow analysis: 死代码的BB干扰分析
+        + 数组、指针和过程调用对分析精确性的干扰
+            + 由于无法判断引用哪个数组元素，所以应该把整个数组看做整体，从而精度降低
+            + 指针引入了二义性，导致指针中的值不能缓存在寄存器中，应该通过分析减小潜在值的集合
+                + 指针类型可以帮助减小集合
+                + 没取过地址的局部变量也不用放到集合中
+                + 传引用参数和指针全局变量，需要过程间数据流分析来追踪指针的潜在值
+            + 过程调用，没有过程间分析的情况下，应该做最坏假设，即，过程会改变所有全局变量和传引用参数，结果是，传引用实参和全局变量不能在寄存器中穿过过程调用。
+                + 精确分析过程的综述信息(MayMod, MayRef)
++ 静态单赋值形式(Static single-assigment form)
+    + Glossary
+        + Strict dominance: a strictly dominates b if and only if a belongs to DOM(b)-{b}
+        + Dominator tree: a tree that encodes the dominance information for a flow graph
+        + Critical edge: in a CFG, an edge whose source has multiple successors and whose sink has multiple predecessors is called a critical edge
+        + Semilattice: a semilattice consists of a set L of values and a meet operator, ^. The meet operator must be idempotent commutative, and associative. A semilattice has a bottom element, some semilattice also have a top element
+    + Maximal SSA form: 在每个join point上，为过程中使用或定义的所有名字，都插入一个Phi
+    + Minimal SSA form: 根据reaching definition，为reaches中的名字添加Phi
+        + 代价是一趟逐语句的数据流分析
+    + Pruned SSA form(剪枝的SSA form): 在minimal SSA的基础上，对Reaches中的名字结合LiveOut进行裁剪，只对活跃变量建立Phi
+        + 代价是两趟数据流分析
+    + Semipruned SSA form(半剪枝的SSA form): 通过数据流分析收集global名字，以及这些名字的定义；针对名字的每次定义，在其BB的dominance frontier位置的BB中(必然是join point的BB)插入Phi
+        + 代价是搜集global的一趟逐语句的数据流分析，以及支配边界分析，这一过程是CFG node级别上的，粒度较大，开销较小
+        + 支配边界的计算：`for jp in joinpoints(cfg): for p in predecessors(jp): while (p != IDOM(jp)) { DF(p) |= jp; p = IDOM(p); }`
+        + Phi的插入：`for gdefine in globaldefines(cfg): for df in DF(BB(gdefine)): insertPhi(df, gdefine.name)`
+        + 重命名：很像抽象解释，处理每个BB的最后一步，是在每个后驱的Phi的右边插入本Env中的名字和编号
+    + 支配性相关
+        + Dominators(n): BB n的支配者集合
+            + 原始的SVN遇到join point是清空Env的，但实际上，join point可以继承它的支配者的Env链
+        + Strict dominators(n): 去掉n本身
+        + Immediate dominator: 离n最近的一个dominator
+            + IDOM(n), IDOM(IDOM(n))... 可以得到n的dominators集合
+        + Dominator tree: 在CFG节点的基础上，连接每个节点n到它的IDOM
+        + Dominance frontier: 支配边界。即从节点n可达，但不支配的第一个节点(集合)。实际上，n的支配边界，是n下游的一个join point，它包含其他分支的流
+    + 静态单赋值转换成其他形式(Translation out of SSA form)
+        + 方法
+            1. 去掉名字编号和Phi
+                + 如果创建SSA后没经过一些激进的变换，是可以这么做的；但如果经过了变换，比如，在x10被定义后，后续的语句还引用x9，那么，去掉编号和Phi将导致错误
+            2. 保留名字和编号，将Phi的一系列赋值分别插入各个predecessor中
+                + 如果边是critical edge，有两种处理方法:
+                    1. split。即在边的源和目的之间插入一个BB，消除critical edge。可以对整个CFG执行这种变换，但这会导致BB增加，影响后续优化效果；比如，单BB循环体因此变成双BB，多了跳转，效率下降。
+                    2. 插入赋值序列到源BB中，但同时在这个赋值序列的前面再插入一个备份赋值序列，然后对该critical edge以外的edge的后驱进行rename，使得对原名字的引用变成对备份名的引用
+                + 全局变量怎么办？
+        + 由于同一个BB中的各个Phi在概念上是并发执行的，所以，如果有激进优化利用了这一点的话(如在swap中使用copy folding)，那么SSA是无法正确转换成其他形式的，必须利用预处理打破循环引用
+    + SSCP(Sparse simple constant propagation)
+        + 是一种全局常量传播算法(global constant propagation)，比constant folding效果更强(后者一般只能处理连续的立即数)，结合SSA，类似`local a = true; if (a){} else {} a = func()`都能进行死代码消除
+        + 对应的经典数据流算法方程应该用到ConstantsIn、ConstantsOut
+        + 算法将每个值的可能结果分成三种，未知、常数、变数，对不同的操作，应用不同的求值规则，在算法达到不动点的时候，应该已经将所有的SSA名字从未知推断成常数或变数
+            + 针对每个操作符，算法会分别解释。一般规则是，操作数包含未知，则结果为未知，操作数包含变数，则结果一般为变数，操作数全是常数，则进行constant folding
+                + 这里可以应用一些代数恒等式(Algebraic identity)，比如，对乘法，一个操作数推断为常数0，则结果始终为常数0
+            + 对操作符Phi的解释，是将值空间看做格(lattice)，名字对应的值即格值(lattice value)，未知表示top element，变数表示bottom element，而Phi操作本身，看做格值之上的Meet操作符。Meet规则如下：
+                + 未知(top) + 任意 => 任意
+                    + 这反映了乐观算法的效果。比如，Phi(10, unknown)=>10
+                + 任意 + 变数(bottom) => 变数
+                + Ci + Ci => Ci
+                + Ci + Cj => 变数
+            + 将SSA名字初始化为未知，是乐观算法(optimistic)；初始化成变数，是悲观算法(pessimistic)
++ 过程间分析(Interprocedural analysis)
+    + 构建调用图(Call graph construction)
+        + 导致call graph构建困难的因素包括:
+            + procedure-valued variables: first class function问题，runtime binding引入的困难
+                + 函数指针签名可以减小集合
+                + 可以通过数据流分析减小目标集合
+            + contextually-resolved names: subtyping多态中，runtime binding引入的困难
+                + 对于closed class hierarchy，可以分析receiver类型的可能子类型，减小callee集合
+                + 对于open class hierarchy和dynamic linking library等特性，只能做最坏打算了(假设过程总是修改所有全局变量和引用参数, 即MayMod、MayRef是全集)
+            + GC语言的finalizer调用时机
+    + 过程间常量传播(Interprocedural constant propagation)
+        + 目的是，证明在程序中，某个过程的某个实参，总是常数，从而允许在过程体内将形参替换成常数后进行全局常量传播
+            + 如果过程只有某个callsite以常数作为实参，那只能在callsite上进行inline substitution后应用全局常量传播
+        + 方法：
+            1. 将每个过程p中的所有callsite si的实参表示成jump function，即，si上的实参是p的形参和常数构成的表达式树
+            2. 将所有过程的形参标记为未知
+            3. 搜集所有callsite上的实参，并将对应过程的形参加入worklist。这里要利用格的meet来更新形参的格值
+            4. 从worklist上取出形参，更新受它影响的各个callsite上的jump function
+            5. 迭代，直到不动点
++ 高级主题(Advanced topics)
+    + Glossary
+        + Reducible graph: A flow graph is reducible if the two transformation, T1 and T2, will reduce it to a single node. If that process fails, the graph is irreducible. Other tests for reducibility exist, for example, if the iterative DOM framework, using an RPO traversal order, needs more that two iterations over a graph, that graph is irreducible
+    + Structural Data-flow algorithm and Reducibility
+        + 结构化数据流算法，是通过创建一系列派生图，来将CFG规约成一个节点，规约过程中，每次将一个子图替换成代表该子图的单个节点；规约成一个节点过后，算法倒转整个过程，从最后的派生图，返回原始的流图，过程中，为各个节点计算最终的数据流集合
+        + T1、T2变换
+            + T1变换是删除自环(self loop)； T2变换是只有唯一前驱的节点a的前驱b折叠回a中，删除(a,b)边，使a成为以b为源的边的新源。
+            + 如果无法通过T1、T2规约一个图，则该图是不可规约的(irreducible)
+            + T1、T2具有有限丘奇-罗瑟性质(finite church-rosser property)，这确保了应用T1、T2变换的结果与变换顺序无关
+            + 将T1、T2变换应用到具有多入口环(multiple-entry loop)的图上，会发现不可规约
+            + 可以通过拆分一个CFG使得它可以通过T1、T2规约
+        + 自从结构化编程崛起，程序员使用goto的可能性大大降低，不可规约图很少出现在全局数据流分析中
+            + break会导致CFG相对反向数据流问题不可规约。
+        + 由于相互递归(mutual recursion)的存在(如递归下降语法分析器)，不可规约图更容易出现在call graph中
+    + Speeding up the Iterative dominance framework
+        + 可以用IDOM来代替Dominators集合，于是，支配者数据流分析问题变成了IDOM求解问题；相比记录每个节点n的支配者集合，以及对n的predecessor的Dom集合求交，显然，只记录节点n的直接支配者，并用它来求交，空间复杂度会低很多，因此效率更高
+            + n, IDOM(n), IDOM(IDOM(n)), ...构成了n的支配者集合
+        + 通过以RPO顺序来对n的前驱的IDOM求交直到不动点，得到IDOM的算法，对一般的可规约图，只需要两个迭代；只有不可规约图，需要大于2次的迭代

@@ -1,4 +1,4 @@
 TechNotes
 =========
 
-Scan's personal technical notes
+Scan's technical notes
