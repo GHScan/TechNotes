@@ -1,0 +1,46 @@
+## 1. Effective Modern C++
+### Deduce Types
++ Item 1: Understand template type deduction
+    + 形参声明的推导结果:
+        + T -> 形参是值。可以绑定到任何实参，实参的引用、const/volatile都丢弃，发生拷贝或移动。
+        + T& -> 形参是cv/non-cv左引用。不能绑定到右值(修改但不move右值是没有意义的)，绑定到cv左值时，cv会推导在T中。
+        + T const& -> 形参是const左引用。可以绑定到任何值。
+        + T&& (universal reference) -> 形参是左值/右值引用，左值引用是T中有&。
+    + 数组和函数
+        + 形参为传值时，实参的数组和函数自动退化(decay)成元素指针和函数指针。
+        + 形参为引用时，实参的数组和函数以引用方式传递。数组引用包括每个纬度的size
+    + 结论
+        + 就结果来说，实参的reference-ness会被忽略
++ Item 2: Understand auto type deduction
+    + auto 用于类型推导时，相当于template type deduction中的T，因此auto/auto&/auto const&/auto&&分别被推导为值/可变左引用/不可变左引用/任何引用。
+        + auto独有的规则，`{}`(braced initializer)作为初始化表达式时，auto被推导为initializer_list。(作为对比, `int a = {1}` 和 `auto a = {1}` 完全不同，前者定义了个int，后者定义了个`initializer_list<int>`)
+    + auto 用作返回值和lambda中的时候，完全相当于T。(auto私有的规则无效，具体来说，{} 作为返回值和lambda形参的初始化表达式是error)
++ Item 3:  Understand decltype
+    + decltype 以变量名为参数的时候，得到的就是变量的声明类型
+    + decltype 以左值表达式为参数的时候，推导结果一定有左引用。(比如，`int x; decltype(x) y; decltype((x)) z` ，y是int，z是int&)
+    + decltype(auto) 使得auto应用decltype的推导规则。(作为对比：auto -> 值；auto &->  可变左引用; auto const & -> 不可变左引用; auto && -> 任意左/右引用; decltype(auto) -> 值或任意左/右引用)
++ Item 4: Know how to view deduced type
+    + 可以在edit time, compile time, runtime 来inspect一个变量/表达式的类型
+        + edit time: 通过ide。不一定准确，看ide中编译器前端实现是否标准。
+        + compile time: 通过编译错误。不一定准确，看编译器是否标准。
+            + `template <typename T> class D;  D<decltype(x)>();` 编译错误中看到x的类型
+        + runtime: 通过`boost::typeindex::type_id_with_cv<T>().pretty_name()` 来看
+            + `typeid(T).name()` 是不行的：
+                1. `name()`不保证可读，不同编译器下的实现不同。clang/gcc可读性较差，msvc的可读性较好。
+                2. 标准规定，typeid的形参声明相当于T，所以不能反映实参的类型。
+### Auto
++ Item 5: Prefer auto to explicit type declartions
++ Item 6: Use the explicitly typed initializer idiom when auto deduceds undesired types
+### Moving to Modern C++
++ Item 7: Distinguish between () and {} when creating objects
++ Item 8: Prefer nullptr to 0 and NULL
++ Item 9: Prefer alias declarations to typedefs
++ Item 10: Prefer scoped enums to unscoped enums
++ Item 11: Prefer deleted functions to private undefined ones
++ Item 12: Declare overriding functions override
++ Item 13: Prefer const_iterators to iterators
++ Item 14: Declare functions noexcept if they won't emit exceptions
++ Item 15: Use constexpr whenever possible
++ Item 16: Make const member functions thread safe
++ Item 17: Understand special member function generation
+### Smart Pointers
