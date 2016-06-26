@@ -38,7 +38,7 @@
         + 简化声明，比如迭代器。
         + 能够声明只有编译器知道的类型，比如lambda表达式
             + 使用auto来声明lambda表达式相比用`function<xxx>` 的优点：
-                +  避免了`function<xxx>` 的多态开销，比如内部的对分配
+                +  避免了`function<xxx>` 的多态开销，比如内部的堆分配
                 + 每个lambda可以有独立的类型，传值给模板函数时，可以实例化出专有的函数实现，从而允许内联
                 + 可以声明泛型lambda
         + 能够声明准确的类型，避免常见的类型陷阱
@@ -57,6 +57,31 @@
 
 ### Moving to Modern C++
 + Item 7: Distinguish between () and {} when creating objects
+    + 四种初始化方法：`int x(0)`, `int x = 0`, `int x{0}`, `int x = {0}`
+        + 对基本类型来说，以上四种声明等价。对用户自定义类型来说，可能是构造、拷贝构造、拷贝赋值等。
+    + {}使用场合很广：
+        + 初始化没有构造函数的结构体。圆括号不行。
+        + 初始化容器。圆括号不行。
+        + 类成员的默认值。例如，`privat: int x{0};`。赋值不行。
+        + 初始化non-copyable对象。如`atomic<int> x{0}`。赋值不行。
+    + {}的特有优点
+        + 不允许implicit narrowing conversion。例如 `int x = 3.0`是合法的，`int x = {3.0}`是不合法的。显然隐式窄转换是不合理的，但是为兼容c又不能去掉，{} 初始化自身fix了这个问题。
+        + 避免了the most vexing parse，即把一个变量的定义，parse成函数声明
+            + `Widget w2()` 是函数声明，`Wdiget w2{}`是变量定义。
+    + {}的缺点
+        + 一旦有`initializer_list`的重载，即使有类型更匹配的其他重载，也选择`initializer_list`。例如 `Widget(int, double)` 和`Wdiget(initializer_list<int>)`，对于`Wdiget w{2, 3.0}`，选择后者。如果有`operator float() const`的话，`Wdiget w2(w)`也选择后者，而不是拷贝构造。
+            + 这个问题经常遇到，因为`vector<int> v{10, 0}` 的结果是2元素容器而不是10元素容器
+            + `initilaizer_list`隐藏其他重载的情况只发生在构造函数，因为，普通函数的调用语法是不同的：`a.call(1, 2)` vs `a.call({1, 2})`，不构成重载         
+        + 虽说，有`initlaizer_list`的重载的时候，{}总是选它；但也有例外，`Widget w{}`选择默认构造而不是`initializer_list`构造。
+    + 当为一个类添加`initialier_list`构造函数重载的时候，小心break掉客户代码。
+    + () 和 {} 的选择 (个人)
+        + 非模板，一律用()，只在需要初始化容器和结构的时候用{}
+            + 优点是不会误调用`initializer_list`的重载
+        + 模板，一律用{}。(或者交由用户选择)
+            + 优点是可以初始化POD和容器、避免隐式窄转换、the most vexing parse
+            + `make_shared/make_unique`内部用的是圆括号。试想：
+                + 用圆括号：`make_shard<vector<int>>(10, 0)` 会构造10元素容器；`make_shared<vector<int>>({10, 0})`会构造2元素容器
+                + 用花括号: `make_shared<vector<int>>(10, 0)` 会构造2元素容器；`make_shared<vector<int>>({10, 0})` 会构造2元素容器
 + Item 8: Prefer nullptr to 0 and NULL
 + Item 9: Prefer alias declarations to typedefs
 + Item 10: Prefer scoped enums to unscoped enums
