@@ -61,7 +61,7 @@
         + 对基本类型来说，以上四种声明等价。对用户自定义类型来说，可能是构造、拷贝构造、拷贝赋值等。
     + {}使用场合很广：
         + 初始化没有构造函数的结构体。圆括号不行。
-        + 初始化容器。圆括号不行。
+        + 初始化容器。圆括号必须`vector<int> v({1, 2, 3})`。
         + 类成员的默认值。例如，`privat: int x{0};`。赋值不行。
         + 初始化non-copyable对象。如`atomic<int> x{0}`。赋值不行。
     + {}的特有优点
@@ -74,23 +74,116 @@
             + `initilaizer_list`隐藏其他重载的情况只发生在构造函数，因为，普通函数的调用语法是不同的：`a.call(1, 2)` vs `a.call({1, 2})`，不构成重载         
         + 虽说，有`initlaizer_list`的重载的时候，{}总是选它；但也有例外，`Widget w{}`选择默认构造而不是`initializer_list`构造。
     + 当为一个类添加`initialier_list`构造函数重载的时候，小心break掉客户代码。
+        + 如果用户全部用()初始化，没问题，因为已有代码中不会有`Widget w({1,2,3})`的call
+        + 如果用户全部用{}初始化，那么，必须小心`initializer_list`是否和某个重载类型兼容，如果有，那么已有代码可能被resolve到这边。
+    + 结论
+        + 单独看`initializer_list`的构造，很好，增加了一种快捷方式`vector<int> v({1, 2, 3})`
+        + 单独看uniform intialization，很好，统一了c-style的结构体初始化。`Point p{x, y}`
+        + 两者合在一起，出事了，`initializer_list` 以外的构造被隐藏了。`vector<int> v{100}`，`vector<int> v{10, 0}` 都只调用了`initailizer_list`的构造
     + () 和 {} 的选择 (个人)
-        + 非模板，一律用()，只在需要初始化容器和结构的时候用{}
-            + 优点是不会误调用`initializer_list`的重载
-        + 模板，一律用{}。(或者交由用户选择)
-            + 优点是可以初始化POD和容器、避免隐式窄转换、the most vexing parse
-            + `make_shared/make_unique`内部用的是圆括号。试想：
-                + 用圆括号：`make_shard<vector<int>>(10, 0)` 会构造10元素容器；`make_shared<vector<int>>({10, 0})`会构造2元素容器
-                + 用花括号: `make_shared<vector<int>>(10, 0)` 会构造2元素容器；`make_shared<vector<int>>({10, 0})` 会构造2元素容器
+        + 非模板
+            + c-style struct用 {}
+            + 普通类用 ()。
+                + 优点：即使有`initializer_list`的构造，也不会误用，因为那要求传入`({})`
+                + 缺点：implicit narrowing conversion, the most vexing parse
+            + 用 {} 来以值序列初始化容器。此时其他构造被隐藏
+        + 模板
+            + 使用 ()
+                + 优点：能够正确的调用各个构造函数重载
+                + 缺点：不支持c-style struct
+            + 对比
+                + 假如用{}
+                    + 优点：支持c-sytle struct
+                    + 缺点：一旦类支持`intializer_list`构造，此时不能访问其他构造
+                + `make_shared/make_unique`内部用的是()。试想：
+                    + 用()：`make_shard<vector<int>>(10, 0)` 会构造10元素容器；`make_shared<vector<int>>({10, 0})`会构造2元素容器
+                    + 用{}: `make_shared<vector<int>>(10, 0)` 会构造2元素容器；`make_shared<vector<int>>({10, 0})` 会构造2元素容器
 + Item 8: Prefer nullptr to 0 and NULL
+    + 0和NULL的缺陷
+        + 会在接受int和指针参数的函数重载间选择前者，surprise
+        + 本质上0和NULL只是int literal，只是当出现在需要指针的上下文中，fallback成指针，类似3可以被当做char和double一样。所以，当0和NULL被用于类型推导的时候，会出现意外。推导的结果类型希望是指针，但其实是int。
+    + nullptr 的类型是nullptr_t，它可以隐式的转换成任意指针
+    + 避免同时提供指针和int的重载，尽管使用nullptr没有问题，但还是有用户或遗留代码在使用0/NULL。
 + Item 9: Prefer alias declarations to typedefs
+    + 当用于模板别名的时候，typedef往往需要`std::remove_cv<T>::type`，这里的`::type`是一个dependent name，被用在模板定义当中时，需要加typename 前缀(否则，编译器没法判断这里的type是一个变量还是类型，因为针对参数T，用户可以特化使得type可以是任意类型和变量)，这比template alias更冗长。
+    + C++14提供了类型转换的template alias。例如`std::remove_const_t<T>` 是`std::remove_const<T>::type`的改进
 + Item 10: Prefer scoped enums to unscoped enums
+    + scoped enums 相对于unscoped enums的优点
+        + 避免了名空间污染
+        + `Color.red`是强类型的，而不再是个int，它不能隐式转换成整数类型。
+        + 前者可以前置声明，后者不行，减少了编译依赖
+            + 之所以unscoped enums不行，是因为，即使一个函数没用到特定的枚举值，但函数仍然需要知道枚举类型的underlying type。c98下的编译器根据具体的枚举值来选择最小的整数类型，从而确定enum的size，这就要求所有的enumerator可见，于是不允许前置声明。而scoped enums的默认underlying type是整数，也可以在前置声明中指定底层类型如`enum class Color : std::uint32_t`，因此不要求所有的枚举值可见。
+    + `std::underlying_type_t<TE>`可以得到枚举的底层类型
 + Item 11: Prefer deleted functions to private undefined ones
+    + deleted function 比 private undefined function 的优点
+        + compile time error vs compile/linking time error
+            + 外部类访问后者，compile time error
+            + 类的其他方法访问后者，linking time error
+        + 前者可以是public的，相比起来后者通过private来禁止访问，是一种work around
+    + deleted function 可以用来删除全局函数和模板函数实例
+        + 可以删除普通全局函数
+        + 删除多态函数的某个实例
+            + ad hoc多态：删除重载的某个实例；删除模板特化的某个实例；删除类模板方法的某个实例
+            + subtyping多态：在派生类的override方法中notsupported抛异常
 + Item 12: Declare overriding functions override
+    + override要求
+        + 基类方法是virtual的
+        + 基类派生类方法名相同，参数类型和个数相同
+        + const和reference qualify相同
+        + 返回值和异常声明兼容
+    + 没有override，很容易出错：
+        + 派生类实际上没有覆盖基类方法
+        + 基类重构过后，break掉派生类，使得派生类的覆盖失败
+    + override, final都是contextual keywords，仅当出现在特定位置的时候才是关键字，因此他们可以被用作方法名。这是为了向后兼容
 + Item 13: Prefer const_iterators to iterators
+    + `const_iterator`总是推荐的，它在c++98中难用的问题已经被修复：
+        + 一个non-const对象返回的是iterator而不是const_iterator，哪怕他只用于读取
+            + cbegin, cend 总是返回const_iterator
+        + insert/erase等方法要求iterator
+            + 这些方法现在接受const_iterator
+    + 模板中应该使用非成员方法的begin,end,rbegin,rend,cbegin,cend,rcegin,rcend
 + Item 14: Declare functions noexcept if they won't emit exceptions
+    + noxcept的优势
+        + noxcept只有抛和不抛两种情况，是另一种trade-off。c++98的异常规范是指定抛出异常的类型，具体异常类型集合成为签名的一部分过后，被证明很容易break掉用户代码(实现变化)。
+        + 编译器可以生成更优化的代码。当异常规范被打破时（在运行时），c++98规范要求unwind stack后再结束程序，而新规范不要求unwind stack允许直接结束程序。这就导致了，在call `void func() throw()`的函数时，也要为stack unwinding做准备（异常规范被打破），这就要求有类似finally的代码块来保证析构局部变量，这有维护代价；而`void func() noexcept`没这个要求，因为即使异常规范被打破，也不要求执行析构，这就没有了异常处理的overhead，所以更优化。
+            + 从编译器维护异常处理的代价来说，`void func() throw()`其实是和`void func()`一样的；只有`void func() noexcept`真正有优化机会
+        + 库代码可以实现得更优化。当函数(特别是指swap)被声明成noexcept或者`throw()`时，由于不会抛出异常（或者打破异常规范、直接结束程序），库可以更高容易做到strong exception safety，这可能允许更高效的实现。在`vector<int>`内部的enlarge_capacity中，需要将元素从旧数组拷贝到新数组，如果类型的move 构造不会抛出异常（往往意味着swap不抛出异常），那么可以直接move，否则必须按老方法copy + swap才能做到strong exception safety。
+    + noexcept 的常见形式
+        + `void func() noexcept` 等价于 `void func() noexcept(true)`
+            + 析构函数在c++11中默认是`noxcept`的了，这意味着曾经的析构不抛建议，在新标准中是语言层面的默认行为，一但抛出异常直接结束程序，除非显示指定`noexcept(false)`或者某个类成员/基类的析构有`noexcept(false)`
+            + `operator delete`、`operator delete[]` 也是默认的noexcept
+        + conditional noexcept。`void swap(pair& p) noexcept(noexcept(swap(first, p.first)) && noxcept(swap(second, p.second)))`，`void swap(T (&a)[N], T (&b)[N]) noexcept(noexcept(*a, *b))`
+            + 复合结构的noexcept往往是建立在基本单元的noexcept之上
+    + noexcept 规范是接口的一部分，修改它将break用户代码
+    + 区分wide contracts和narrow contracts，前者可以从任何地方调用，后者要求一定的前条件。一般后者不能被实现为noexcept的，因为至少要verify precondition,
+    + 编译器不会在noexcept的函数体中检查异常抛出情况
+        + 因为大量的c++98和c函数没有规范
+        + 直接throw异常是可能被编译器警告的
+    + 结论
+        + 大部分的函数都是异常中立(exception-neutral)的
+        + noexcept 给了编译器和库更多的优化机会
+        + noexcept 对move操作、swap、delete/desetructor特别有意义
 + Item 15: Use constexpr whenever possible
+    + constexpr 可以用来标记变量，于是该变量可以被用作模板参数和枚举定义
+    + constexpr可以被用来标记函数
+        + 函数可以在编译期和运行时调用。编译期调用要求传入字面值或者constexpr表达式
+        + constexpr的函数可以递归，C++14以后允许语句
+    + consexpr 可以用来标记类的方法，包括构造函数和getter/setter (后者也是C++14后加入)
+        + 结果是，constexpr的对象可以用于编译期的函数计算
+        + constexpr 是类接口的一部分。这意味着它可以被用于编译期计算，如果后期方法的constexpr被移除，这将导致客户代码中的编译期计算被break掉。
+        + constexpr方法默认也是const的
 + Item 16: Make const member functions thread safe
+    + 对于一个可能被用在并发环境中的类，确保它的const方法是thread-safe的
+        + 这可能需要声明mutable的mutex或者atomic字段
 + Item 17: Understand special member function generation
+    + 生成的copy函数，是memberwise  copy；生成的move函数，是memberwise move，如果某字段没有move则copy
+    + 按照以前的Rules of Three原则，一旦用户自定义一个析构/拷贝或move构造/赋值，意味着该类默认的memberwise copy/move不再适用，其他几个都应该被自定义，编译器不应该再自动生成。由于C++98中，拷贝构造/赋值和析构的自动生成互不影响，因此在不破坏已有代码的情况下，新的自动生成规则如下：
+        + 默认构造函数：自定义任意一个构造函数，默认构造不再生成
+        + copy构造/赋值：定义其中一个不影响另一个的生成(老规则)，但是会导致不再自动生成move
+        + move构造/赋值：定义其中一个另一个也不再生成，同时不再生成copy和destructor。因为只可能在c++11代码中声明move，所以导致的copy/destructor被delete这个结果，并不会break老代码
+        + 析构函数：定义过后，不再生成move。
+        + 模板copy/move函数及其实例化，不影响上面的函数生成
+    + 注意！对于一个C++11类，添加自定义的copy/move/destructor，都会导致原本的move不再自动生成，这可能导致性能下降！
+    + 为你的C++11类，明确声明constructor/copy/move/destructor的`=default`的行为
 
 ### Smart Pointers
