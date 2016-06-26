@@ -1,4 +1,5 @@
 ## 1. Effective Modern C++
+
 ### Deduce Types
 + Item 1: Understand template type deduction
     + 形参声明的推导结果:
@@ -28,9 +29,32 @@
             + `typeid(T).name()` 是不行的：
                 1. `name()`不保证可读，不同编译器下的实现不同。clang/gcc可读性较差，msvc的可读性较好。
                 2. 标准规定，typeid的形参声明相当于T，所以不能反映实参的类型。
+
 ### Auto
 + Item 5: Prefer auto to explicit type declartions
+    + auto 的优点：
+        + 对重构友好
+        + 必须初始化
+        + 简化声明，比如迭代器。
+        + 能够声明只有编译器知道的类型，比如lambda表达式
+            + 使用auto来声明lambda表达式相比用`function<xxx>` 的优点：
+                +  避免了`function<xxx>` 的多态开销，比如内部的对分配
+                + 每个lambda可以有独立的类型，传值给模板函数时，可以实例化出专有的函数实现，从而允许内联
+                + 可以声明泛型lambda
+        + 能够声明准确的类型，避免常见的类型陷阱
+            + `unsigned size = vec.size()`，不可移植，64bit下溢出
+            + `for (const pair<string, int> &p : map)`，其实发生了隐式类型转换`pair<string const, int> -> pair<string, int>`，因此p其实引用的是一个右值
+    + 关于auto影响可读性的讨论
+        + auto不是强制的，你可以在有必要的时候显示声明
+        + auto不是c++独创的，已经在静态函数式语言和动态语言中广泛的使用
+        + 可以通过ide查看实际类型
+    +  auto 的缺点
+        + {} 被返回值/lambda以外被推导成initializer_list，这和显示声明时结果不同
+        + 会将hidden proxy暴露出来，导致undefined bahvior，需要用户自己去发现hidden proxy。比如`bool x = getBoolVector()[0];` 是ok的，而`auto x = getBoolVector()[0]` 声明了一个bool的proxy，引用了一个右值的容器，非法。
 + Item 6: Use the explicitly typed initializer idiom when auto deduceds undesired types
+    + 使用static_cast将hidden proxy实例转化成被代理的类型实例
+        + `auto x = static_cast<bool>(getBoolVector()[0])` 强调了这个转换的必要；而如果继续使用`bool x = getBoolVector()[0]`的话，一旦未来被人不小心refactor到auto，就break掉了，坑。
+
 ### Moving to Modern C++
 + Item 7: Distinguish between () and {} when creating objects
 + Item 8: Prefer nullptr to 0 and NULL
@@ -43,4 +67,5 @@
 + Item 15: Use constexpr whenever possible
 + Item 16: Make const member functions thread safe
 + Item 17: Understand special member function generation
+
 ### Smart Pointers
