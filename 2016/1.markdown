@@ -187,3 +187,71 @@
     + 为你的C++11类，明确声明constructor/copy/move/destructor的`=default`的行为
 
 ### Smart Pointers
++ Item 18: Use std::unique_ptr for exclusive-ownership resource management
+    + 裸指针的缺点
+        + 没有说明指向的单元素还是数组
+        + 没有说明你是否应该负责销毁指向的元素
+        + 没有说明应该怎样销毁，delete还是destroy
+        + 如果是delete，没有说明应该用delete还是delete[]
+        + 很难保证销毁、并且仅销毁一次
+        + 没法判断一个指针是否是悬空指针
+    + 析构函数在很多情况下不保证被调用(智能指针也失效)
+        + 异常没有被处理的时候(抛出main函数，此时不保证stack unwinding；相对的，此时c#的finally块儿保证被调用)
+        + noexcept异常规范被破坏的时候
+        + std::abort 或者 exit (std::_Exit, std::exit, std::quick_exit)函数被调用的时候
+    + unique_ptr 几乎和裸指针性能一样，没有shared_ptr的那些性能惩罚(atomic ref count, control block allocation, virtual call of deleter, at least 2 word size)
+    + 关于std::unique_ptr
+        + deleter是type的一部分，所以声明unique_ptr变量的地方，要求deleter访问的对象是complete type
+        + 因为deleter是type的一部分，所以实际的销毁是inline的，没有性能惩罚
+        + 默认的deleter是delete，此时unique_ptr对象的大小是一个字
+        + customer deleter如果是stateless的话，unique_ptr对象的大小仍然是一个字；否则会加上deleter的状态大小
+    + unique_ptr 被广泛的用作工厂函数，尤其是他可以隐式转换成 shared_ptr
+    + unique_ptr 被广泛的用于 pimpl idiom
+    + unique_ptr 支持数组形式 (`unique_ptr<T[]>`)，此时不能解引用(`operator*`和`operator->`)，但支持`operator[]`；数组形式没有隐式的向下转型(因为数组的元素size不同)
+        + 尽管此时用std::vector和std::array更好
++ Item 19: Use std::shared_ptr for shared-ownership resource management
+    + 相对于GC的优势：generality and predictability
+    + shared_ptr 的缺点
+        + 对象是2个字大 (对象指针+控制块指针)
+            + 控制块(control block)中，包括引用数、弱引用数、deleter数据
+            + 控制块的实现中往往需要虚函数
+        + 除非使用make_shared，控制块的内存需要一次额外分配
+        + 增加和减小引用计数是原子的
+            + 所以move运算比copy运算快，前者不需要修改引用数
+    + deleter 不是类型的一部分，因此更灵活，但有运行时惩罚
+        + 因此，声明shared_ptr变量的时候，不要求completed type，只在初始化的时候要求可见
+        + deleter 的大小不影响 shared_ptr 对象大小
+    + 有 shared_from_this() 需求的类型应该继承 enable_shared_from_this ，然后声明 private 构造，然后工厂函数返回 shared_ptr
+        + 构造 shared_ptr 的时候，enable_shared_from_this 内部会记录 control block 的地址
+    + 不应该用 shared_ptr 保存数组(T[])
+        + 默认的delete不能用于数组
+        + shared_ptr 允许从drived sp转换到base sp，这对数组是错的
+    + 不应该通过裸指针构造shared_ptr，因为这个裸指针可能被多次用于构造sp
++ Item 20: Use std::weak_ptr for std::shared_ptr-like pointers that can dangle
+    + 需要通过 lock 来返回一个 shared_ptr 是因为分离的 expired() 判断和解引用有race condition
+    + 在很多实现当中，control block 中的weak ref count是不等于weak_ptr对象数的。比如，可能用额外的1表示有shared_ptr存在
+    + 典型应用
+        + cache
+        + observer list
+        + prevention of shared_ptr cycles
++ Item 21: Prefer std::make_unique and std::make_shared to direct use of new
+    + make_unique 和 make_shared 不支持custom allocator，后者有提供对应的 allocate_shared，它的第一个参数是allocator
+    + make_xxx 的优点
+        + make + auto 只需要写对象类型一次，而 new 需要两次(声明sp+new)，避免了重复
+        + exception safety。一旦new和ptr的构造之间有其他函数调用，并抛出了异常，会是资源泄露
+            + 在c++17以前，函数各个实参求值之间彼此是unsequenced关系，即可用相互overlap，此时写符合表达式来初始化sp对象很容易导致泄露；c++17以后，求值顺序变成了indeterminately sequenced，稍好，但一样不可避免异常安全问题
+            + 对策，应该以单独的语句来以空指针初始化sp (当然此句之前，上至new，都不应该有异常)
+        + make_shared 有性能优势，因为 control block 可以和对象放在一个内存块上
+            + 两次分配在性能和尺寸上都有惩罚
+        + 以裸指针构造sp，可能导致同一个裸指针被用于构造多个sp
+    + make_xxx 的缺点
+        + 不支持 custom deleter。尤其是 customer deleter 往往也要求特殊的 allocator
+        + make 内部使用的是 () 初始化而不是 {} 初始化
+            + 无法初始化c-style struct
+            + 无法完美转发 braced-initialization，所以`make_shared<vector<int>>({1, 2, 3})` 是无效的，必须引入一个额外的initializer_list 变量
+        + make_shared 不支持用户自定义operator new和operator delete，因为make_shared实际分配的内存是object size + control block size
+        + make_shared 使得control block 和对象布局在同一个内存块上，虽然对象已经因为ref count归0而析构，但整块内存还要等到weak ref count归零才回收。如果weak_ptr生命期明显比较长，而对象尺寸又很大，那么这导致这块内存长时间不得释放。而直接构造shared_ptr会有两个内存块，对象内存块在ref count归0就回收了，weak ref count只会延迟control block的回收。
++ Item 22: When using the Pimpl Idiom, define special member functions in the implementation file
+    + 使用 unique_ptr 来实现 Pimpl idiom 时，由于 deleter 是 unique_ptr 的一部分，所以需要在实现代码中明确的定义析构和move op甚至copy op
+        + 多用 `= default`
+    + 使用 shared_ptr 来实现 Pimpl idiom 时(往往是实现flyweight pattern的对象)，只需要写构造即可，因为deleter不再是类型的一部分，只在构造shared_ptr的时候要求completed type
