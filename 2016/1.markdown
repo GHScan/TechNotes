@@ -255,3 +255,97 @@
     + 使用 unique_ptr 来实现 Pimpl idiom 时，由于 deleter 是 unique_ptr 的一部分，所以需要在实现代码中明确的定义析构和move op甚至copy op
         + 多用 `= default`
     + 使用 shared_ptr 来实现 Pimpl idiom 时(往往是实现flyweight pattern的对象)，只需要写构造即可，因为deleter不再是类型的一部分，只在构造shared_ptr的时候要求completed type
+
+### Rvalue References, Move semantics, Perfect forwarding
++ Item 23: Understand std::move and std::forward
+    + move和forward不做移动等，只做类型转换
+    + 由于命名的右值变量不再是临时值，所以他们会自动变成左值。比如`T&&->T&`、`T const&& -> T const &`。正因为此，右值变量可以被多次引用而不用担心内容破坏，除非显示的move或者forward
+        + const 右值一般只能绑定到const左值引用，导致copy而不是move
+    + move 是将绑定的任意值(由于右值变量是左值，所以move的实参一般是左值)无条件转换成右值
+        + 使用move的场合，其实也可以使用forward，但此时用move更能表达目的以及更简洁
+        + 参考实现:
+        ```
+        template<typename T>
+        decltype(auto) move(T&& v)
+        {
+            return static_caset<std::remove_reference_t<T>&&>(v);
+        }
+        ```
+    + forward是将收到的任意值(一般是左值)根据显示模板参数转换回左值或者右值
+        + 参考实现：
+        ```
+        template<typename T>
+        T&& forward(T& v)
+        {
+            return static_cast<T&&>(v);
+        }
+        ```
++ Item 24: Distinguish universal references from lvalue references
+    + T&& 出现在需要类型推导的场合，是universal reference，包括模板函数和auto；出现在具体类型的场合，是右值引用，包括模板类的成员和具体类
+    + 注意在对泛型lambda的auto&&形参做转发时，应该用`forward<decltype(v)>`
+        + 这里的形参也是universal reference
++ Item 25: Use std::move on rvalue references, std::forward on universal references
+    + rvalue reference形参的最后一次访问(传参或者返回)用move，目的是move copy
+        + 前几次访问右值引用变量会退化成左值引用
+    + universal reference形参的最后一次访问用forward，目的是绑定到右值时move copy
+        + 前几次访问变量将总是左值引用
+    + 局部变量和传值形参直接传参或者return
+        + 当局部变量和传值形参类型和返回值类型完全一样，并且return表达式就是变量名时，编译器被要求应用RVO（此时是NRVO），如果没有做这种优化，至少应该自动将变量视作右值而不是左值
+        + RVO由于直接在函数返回值的地址上构造局部变量，所以省掉了move，性能最高
+        + 此时用std::move反而导致RVO不能工作，性能可能变低
++ Item 26: Avoid overloading on universal references
+    + 隐式转换的评分
+        1. exact match: no conversion required, lvalue-to-rvalue conversion, qualification conversion, `function pointer conversion, (since C++17)` `user-defined conversion of class type to the same class`
+        2. promotion: integral promotion, floating-point promotion
+        3. conversion: integral conversion, floating-point conversion, floating-integral conversion, pointer conversion, pointer-to-member conversion, boolean conversion, `user-defined conversion of a derived class to its base`
+    + 重载函数的匹配优先级
+        + 所有参数exact match的非模板函数
+        + 实例化后exact match的模板函数
+        + 需要promotion或者conversion的非模板函数 (这种情况是模板函数不存在或者也需要转换或者遭遇SFINAE)
+        + c语言变参函数
+    + SFINAE (substitute failure is not an error)
+        + 条件
+            + 模板参数替换后导致ill-formed: A substitution failure is any situation when the type or expression above would be ill-formed (with a required diagnostic), if written using the substituted arguments.
+            + 只有引用的ill-formed是SFINAE，如果需要生成其他类型，则是hard error: Only the failures in the types and expressions in the immediate context of the function type or its template parameter types are SFINAE errors. If the evaluation of a substituted type/expression causes a side-effect such as instantiation of some template specialization, generation of an implicitly-defined member function, etc, errors in those side-effects are treated as hard errors.
+        + alternatives
+            + Where applicable, `tag dispatch`, `static_assert`, and, if available, `concepts,` are usually preferred over direct use of SFINAE.
+    + 由于完美转发几乎总能造成exact match，所以在重载决议中出于极高的优先级(第2优先级)，如果目标函数模板exact match而是需要转换，则会被完美转发异常。
+        + 完美转发的贪婪性质，使得应该避免声明完美转发的重载
+    + 声明完美转发的构造函数时，很容易隐藏const move和const copy构造函数，非常危险
++ Item 27: Familiarize yourself with with alternatives to overloading on universal references
+    + 避免完美转发歧义的方法
+        + 避免重载(abandon overloading)：如果重载的函数是一般函数，那么专门为完美转发声明一个唯一的函数名
+        + 使用tag dispatch: 声明一个完美转发的接口，然后利用tag来dispatch到各个实现(包括完美转发重载的实现)。该技巧不能用在构造函数上
+        + 传const引用(pass by const T&)：构造时使用c++98的老方法，缺点是实参是临时值时可能多一次拷贝
+        + 传值(pass by value): 优点是传左值和右值都只有一次拷贝(或者构造)
+        + 利用enable_if等SFINAE手段：该技巧可以应用在构造函数上，但是代码冗长，一般在有其他可选方案时优先考虑其他
+            + std::decay_t 进行的类型转换相当于传值，即，数组函数都变指针，cv/ref都去掉
+    + 完美转发的新更能比较好，但是一旦错误错误报告非常冗长。即，性能好，但可用性成问题。
++ Item 28: Understand reference collapsing
+    + 编译器不允许声明引用的引用，但它会自动在合适的场合折叠引用
+        + 规则：任意一个引用是左值引用，结果是左值引用；否则是右值引用
+        + 引用折叠发生的场合
+            + 模板函数的类型推导
+            + auto
+            + decltype
+            + typedef
++ Item 29: Assume that move operations are not present, not cheap, and not used
+    + 假设的原因
+        + not present: 由于copy拷贝/赋值和析构会禁用move拷贝和赋值的生成，所以c++98写成的库中的很多类，直接用c++11编译，都不会从move中受益
+        + not cheap: std::array以及支持SSO(small string optimization)的std::string实现的move都不是O(1)的
+        + not used: 一些库实现只在move是noexcept或者throw()的时候进行move(即使用`move_if_noexcept`)，其他时候进行copy，这可能是出于strong exception safety的考虑
+    + 只需要在模板中进行假设，针对具体类型编程的时候尽管利用类型本身的move/copy性质
++ Item 30: Farmiliarize yourself with perfect forwarding failure cases
+    + failure cases
+        + braced initializer: `forward({1, 2, 3})`
+            + work around: `var list = {1, 2, 3}; forward(list);`
+        + 0 or NULL pointers
+            + work around: use nullptr
+    + declaration-only integral static const and constexpr data members
+        + 因为完美转发是引用，要求变量地址，而没有定义的常量声明其实只是在利用编译器的constant propagation，一旦要求地址就不行了
+        + work around: 在cpp中定义（但不用再声明初始值）
+    + 重载函数和模板函数
+        + work around: static_cast 或者声明显示类型的局部变量
+    + Bitfields
+        + 因为位域没有地址，无法传引用
+        + work around: 声明局部变量 
