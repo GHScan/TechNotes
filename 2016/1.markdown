@@ -349,3 +349,73 @@
     + Bitfields
         + 因为位域没有地址，无法传引用
         + work around: 声明局部变量 
+
+### Lambda Expressions
++ Item 31: Avoid defualt capture models
+    + default by-reference capture 可能导致dangling reference
+    + default by-value capture 可能导致dangling pointer
+        + 尤其危险的是隐式捕获了this
++ Item 32: Use init capture to move objects into closures
+    + 通过init capture来move对象到closure中
+    + 在c++11中，可以使用std::bind来达到同样的效果
++ Item 33: Use decltype on auto&& parameters to std::forward them
+    + 在generic lambda内部forward形参时，用`std::forward<decltype(v)>`，这里的`decltype(v)`用来代替template deduction中的T
++ Item 34: Prefer lambdas to std::bind
+    + lambda 可读性更强。
+    + lambda 表达力更强。相比之下std::bind只能在创建closure的时候求值
+    + lambda 更高效。
+        + lambda 实例有特定的类型，可以inline；相比之下，bind其实接受的指针，有一个间接层
+    + 在c++11中，std::bind可以用来创建template callable对象；lambda则必须要c++14的generic lambda
+### The Conrruency API
++ Item 35: Prefer task-based programming to thread-based
+    + std::future 可以用来表示异步结果，可以转发异常
+        + std::thread 中如果有unhandled exception，会terminate程序
+    + std::async能够利用线程池，于是在系统线程不足的时候允许同步执行，允许load balancing（底层实现可能是OS level的），可以方便的移植到新系统
+    + 在以下情况时使用std::thread是合适的：
+        + 需要访问底层线程接口，std::thread允许通过native_handle访问底层线程句柄
+        + 想要自己优化线程调度。比如自制线程池、优先级、core亲和性
++ Item 36: Specify std::launch::async if asynchornicity is essential
+    + std::async 默认的标志允许同步或者异步执行，甚至可能永远不执行（同步并且没有call get的时候），这将导致以timeout的方式等待异步执行结束的代码出错，更可怕的是，可能只在work load较高的时候出错（此时实现认为线程不够异步执行）
+    + 默认标志不确定同步/异步执行的结果是，应用层thread_local的使用可能出错
+    + 建议自己在std:;async的基础上包装，显示要求异步执行（或者在提供一个显示同步的包装）
++ Item 37: Make std::threads unjoinable on all paths
+    + std::thread 在析构的时候，如果发现对象仍然是joinable的(即从没有join或者detach)，将断言
+        + 如果默认行为总是join，则可能不必要的影响性能
+        + 如果默认行为总是detach，那么线程方法体可能对局部变量的引用会导致dangling reference
++ Item 38: Be aware of varying thread handle destructor behavior
+    + future (shared_future)和 promise 都持有一个对`shared_state`的引用
+    + 最后一个future析构的时候，将导致释放`shared_state`，如果此时task是异步并且joinable，那么默认将join
+        + 这仅限于std::async返回的future；因为`packed_task`返回的future，实际负责join的是委托的std::thread
++ Item 39: Consider void futures for one-shot event communication
+    + condvar有两个问题
+        + 如果notify 早于wait，此次notify将丢失，这可能导致hang
+        + spurious wakeup: 没有notify，却可能因为OS实现而偶然的wakeup
+    + 正确的condvar一般要求配合一个bool来使用：
+        + 如果notify早于wait，bool可以用来表示状态，不至于丢失信号
+        + spurious wakeup导致的唤醒，可以用bool来二次确认是否真的唤醒
+    + 使用`std::atomic<bool>`也能做线程间通信，但他将导致busy waiting，不能真正的block住。超线程情况下影响更严重
+    + promise + future 也可能完成通信的任务，但只能是单次唤醒
++ Item 40: Use std::atomic for concurency volatile for special memory
+    + std::atomic 的作用：避免对多次load/多次save的优化；原子性；避免编译器乱序/避免cpu乱序(由于false sharing)。用于多线程
+    + volatile的作用：每次访问都真正读写内存，避免优化。用于访问特殊内存
+        + 主要是memory-mapped IO：此时，多次读其实是在从设备读取实时只，每次读的结果都不同；多次写可能是在对设备发送命令
+        + 共享内存：多次读可能得到的是其他进程的多次副作用；多次写可能被其他线程用作不同目的
+            + 多线程情况其实也类似
+### Tweaks
++ Item 41: Consider pass by value for copyable parametesr that are cheap to move and always copied
+    + 一般有三种选择：
+        + const左值引用、右值引用的重载: 缺点是维护两个函数
+        + 完美转发：缺点是code size大，可用性不好
+        + 传值
+    + 传值建议仅在满足三个条件的情况下适用
+        + 实参是copyable的类型。否则，如果只能move，那么简单声明右值引用版本即可
+        + move廉价。比如对支持SSO的string实现，move和copy几乎一样昂贵，那么传值方案基本退回到c++98的情形，此时建议const引用
+        + 一定需要拷贝。比如在构造函数中。如果不需要拷贝，那么const引用就足够了
+    + 传值有slicing问题，因此不应该对基类做传值
++ Item 42: Consider emplacement instead of insertion
+    + `insert, push_back, push_froint,insert_after`都有emplace版本，可以省掉至少一次构造和析构
+    + 在这些情况下，emplace可能更快
+        + 新值是在容器中被构造，而不是赋值
+        + 实参类型和容器元素类型不同（也意味着要构造） 
+        + 容器不会否决掉这次添加(比如不是在往set中添加重复值)
++ emplace 实际是direct intialization而不是copy intialization，因此是explicit构造而不是隐式构造
