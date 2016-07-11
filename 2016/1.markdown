@@ -366,6 +366,7 @@
     + lambda 更高效。
         + lambda 实例有特定的类型，可以inline；相比之下，bind其实接受的指针，有一个间接层
     + 在c++11中，std::bind可以用来创建template callable对象；lambda则必须要c++14的generic lambda
+    
 ### The Conrruency API
 + Item 35: Prefer task-based programming to thread-based
     + std::future 可以用来表示异步结果，可以转发异常
@@ -401,6 +402,7 @@
         + 主要是memory-mapped IO：此时，多次读其实是在从设备读取实时只，每次读的结果都不同；多次写可能是在对设备发送命令
         + 共享内存：多次读可能得到的是其他进程的多次副作用；多次写可能被其他线程用作不同目的
             + 多线程情况其实也类似
+
 ### Tweaks
 + Item 41: Consider pass by value for copyable parametesr that are cheap to move and always copied
     + 一般有三种选择：
