@@ -58,19 +58,19 @@
         ```
     - `寄存器分配(Register Allocation)`：下例将对g的2次读取优化成了1次
         ```c++
-        a = g;          //----------->    load r1, mem1 
-        b += a;         //  rewrite       add r2, r2, r1 
+        a = g;          //----------->    load %r1, 0($mem1)
+        b += a;         //  rewrite       add %r2, %r2, %r1 
         a = g;          //                 
-        c += a;         //                add r3, r3, r1 
+        c += a;         //                add %r3, %r3, %r1 
         ```
     - `指令调度(Instruction Scheduling)`：下例重排的后一条指令不必等待前一条的结果减少了停顿*(这里的静态流水线调度缓解了`RAW Hazard`)*
         ```asm
-        load r0, mem0   //                load r0, mem0 
-        mul r1, r1, r0  //----------->    load r2, mem2 
-        store mem1, r1  //  rewrite       mul r1, r1, r0 
-        load r2, mem2   //                mul r3, r3, r2 
-        mul r3, r3, r2  //                store mem1, r1 
-        store mem3, r3  //                store mem3, r3 
+        load %r0, 0($mem0)  //                load %r0, 0($mem0)
+        mul %r1, %r1, %r0   //----------->    load %r2, 0($mem2)
+        store 0($mem1), %r1 //  rewrite       mul %r1, %r1, %r0 
+        load %r2, 0($mem2)  //                mul %r3, %r3, %r2 
+        mul %r3, %r3, %r2   //                store 0($mem1), %r1 
+        store 0($mem3), %r3 //                store 0($mem3), %r3 
         ```
 
 ## Memory Model
@@ -99,10 +99,10 @@
         { data == 0, flag == 0 }
         //  thread 0                 thread 1
         //----------------------------------------
-            store data, 1            loop:
-            store flag, 1            load r0, flag
-                                     beq r0, 0, loop
-                                     load r1, data
+            store 0($data), $1       loop:
+            store 0($flag), $1       load %r0, 0($flag)
+                                     beq %r0, $0, loop
+                                     load %r1, 0($data)
         ```
         可能r1 == 0。本例在ARM上能重现
     - Store-Load乱序
@@ -110,48 +110,48 @@
         { x == 0, y == 0 }
         //  thread 0                 thread 1
         //----------------------------------------
-            store x, 1               store y, 1
-            load r0, y               load r1, x
+            store 0($x), $1          store 0($y), $1
+            load %r0, 0($y)          load %r1, 0($x)
         ```
         可能r0 == 0 && r1 == 0。本例在ARM/x86上能重现
     - `Dependent Loads`乱序$^{[5]}$
-        ```c++
+        ```asm
         { A == 1, B == 2, C == 3, P == &A, Q == &C }
         //  thread 0                thread 1
         //--------------------------------------
-            B = 4;                  
-            BARRIER;
-            P = &B;
-                                    Q = P;
-                                    D = *Q;
+            store 0($B), $4
+            BARRIER
+            store 0($P), $B
+                                    load %r0, 0($P)
+                                    load %r1 0(%r0)
         ```
-        可能Q == &B && D == 2。本例在DEC Alpha上能重现
+        可能r0 == &B && r1 == 2。本例在DEC Alpha上能重现
     - `Non-Causality`/`Non-Transitivity`$^{[3]}$
         ```asm
         { flag0 == 0, flag1 == 0 }
-        //  thread 0            thread 1            thread 2
-        //-------------------------------------------------------
-            store flag0, 1      
-                                loop:
-                                load r0, flag0
-                                beq r0, 0, loop
-                                BARRIER
-                                store flag1, 1
-                                                    loop:
-                                                    load r1, flag1
-                                                    beq r1, 0, loop
-                                                    BARRIER
-                                                    load r2, flag0
+        //  thread 0                thread 1                thread 2
+        //-----------------------------------------------------------------
+            store 0($flag0), $1      
+                                    loop:
+                                    load %r0, 0($flag0)
+                                    beq %r0, $0, loop
+                                    BARRIER
+                                    store 0($flag1), $1
+                                                            loop:
+                                                            load %r1, 0($flag1)
+                                                            beq %r1, $0, loop
+                                                            BARRIER
+                                                            load %r2, 0($flag0)
         ```
         可能r2 == 0。本例在不支持Causality的系统中能重现
     - `IRIW(Independent Read Independent Write)`$^{[3]}$
         ```asm
-        //  thread 0            thread 1            thread 2            thread 3
-        //-------------------------------------------------------------------------
-            store data1, 1      store data2, 1       
-                                                    load r1, data1      load r3, data2
-                                                    BARRIER             BARRIER
-                                                    load r2, data2      load r4, data1
+        //  thread 0            thread 1            thread 2             thread 3
+        //---------------------------------------------------------------------------------
+            store 0($data1), 1  store 0($data2), 1       
+                                                    load %r1, 0($data1)  load %r3, 0($data2)
+                                                    BARRIER              BARRIER
+                                                    load %r2, 0($data2)  load %r4, 0($data1)
         ```
         在r1 == 1 && r3 == 1的前提下，可能r2 == 0 && r4 == 0，即thread 2和3看见了不同的写顺序。本例在不支持`Atomic Store`的系统中能重现，比如某些NUMA和带SMT的UMA系统
 - #### Memory Model由哪些属性构成
