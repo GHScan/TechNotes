@@ -207,7 +207,7 @@
         理想的Memory Model，能够尽量满足上面系统和程序员的诉求：允许各种乱序、非原子写，但只要程序员按一定的模式来组织程序、协调多个线程的通信，那这些混乱都是透明的。下面介绍一种Memory Model，它对系统和程序员都足够友好。
         - `SC for DRF programs`$^{[3]}$
 
-            当两个线程同时访问一个地址，其中至少一个是写操作时，我们说发生了`Data-Race`。有一类良好组织`Data-Race Free`程序，运行在`Sequential Consistency`和`Relaxed Consistency`的Memory Model上都能得到一样的结果，这类程序的行为可以仅仅通过程序顺序(Programm Order)去推断，我们说这类程序叫`SC for DRF programs(Sequential Consistency for Data-Race Free programs)`。*也就是说，SC for DRF的程序能用Sequential Consistency的Memory Model去推断正确性，却同时具备Relaxed Memory Model的性能*
+            当两个线程同时访问一个地址，其中至少一个是写操作时，我们说发生了`Data-Race`。有一类良好组织`Data-Race Free`程序，运行在`Sequential Consistency`和`Relaxed Consistency`的Memory Model上都能得到一样的结果，这类程序的行为可以仅仅通过程序顺序(Programm Order)去推断，我们说这类程序叫`SC for DRF programs(Sequential Consistency for Data-Race Free programs)`。*也就是说，SC for DRF的程序能用Sequential Consistency的Memory Model去推断正确性，却同时具备Relaxed Memory Model的性能(这往往意味着程序不依赖Atomic Store)*
         - 基于存储器分类的Memory Model
             - 存储器分类
                 - `私有数据(Private Data)`：简称p_data，只被固定线程访问的数据。没有Data-Race、不需要Cache Coherence；其上的操作可以进行任何乱序，包括跨越s_data和sync_var的读写。*p_data对应的Cache Line一般常驻在特定处理器的本地Cache中，除非操作系统为负载均衡执行Migration。编译器能够识别局部变量但却无法很好识别thread local的堆数据；部分处理器如ARM允许将存储器标记为非共享的$^{[7]}$，从而禁用Cache Coherence并执行各种优化*
