@@ -94,7 +94,7 @@
 
     当没有正确进行线程间同步时，以下例子都是可能的，它们反映了某些Relaxed Memory Model的行为。
 
-    - Store-Store Reorder 或 Load-Load Reorder
+    - Store-Store乱序或Load-Load乱序
         ```asm
         { data == 0, flag == 0 }
         //  thread 0                 thread 1
@@ -105,7 +105,7 @@
                                      load r1, data
         ```
         可能r1 == 0。本例在ARM上能重现
-    - Store-Load Reorder
+    - Store-Load乱序
         ```asm
         { x == 0, y == 0 }
         //  thread 0                 thread 1
@@ -114,7 +114,7 @@
             load r0, y               load r1, x
         ```
         可能r0 == 0 && r1 == 0。本例在ARM/x86上能重现
-    - `Dependent Loads` Reorder$^{[5]}$
+    - `Dependent Loads`乱序$^{[5]}$
         ```c++
         { A == 1, B == 2, C == 3, P == &A, Q == &C }
         //  thread 0                thread 1
@@ -174,10 +174,10 @@
 
     现代处理器可能出于优化的考虑，放松下面这些限制的一条或多条：
     - Memory Ordering$^{[4]}$
-        - Load-Load Order：当前一条Load指令因为操作数未就绪*(RAW Hazard)*或Cache Miss而必须等待时，乱序执行的CPU可能先执行后一条Load指令以掩盖停顿。*如果Memory Model不允许这种Reorder或程序员在两次Load之间插入了一条Barrier指令，那第一条Load执行完毕后，如果发现有Invalidate Message令后面要Load的Cache Line失效，就应该通过清空ROB撤销乱序执行的Load和后续指令然后重新执行*
-        - Load-Store Order：同上，当前一条Load因为各种原因等待时，后一条Store指令可能被先执行。*如果Memory Model或Barrier指令限制这种Reorder，在推断执行的CPU中往往不用做任何事，因为Store指令是在提交阶段才更新存储器*
-        - Store-Load Order：当CPU和Cache间有写缓冲(Write Buffer)时，写操作会被放入写缓冲而不是更新Cache，这可能导致Load指令执行过后，写操作仍然对其他处理器不可见。*如果Memory Model或Barrier指令限制这种Reorder，这要求在执行读操作之前，先Flush整个写缓冲，令结果写到Cache中，这里的开销非常大。由于开销非常大，现代处理器都允许这种Reorder，且只有Full Barrier限制这种Reorder*
-        - Store-Store Order：当CPU和Cache间有一个Non-FIFI或Coalescing的写缓冲时，如果前一个写操作导致Cache Miss或和其他写操作合并(因为写同一条Cache Line)，后一条结果可能先写入Cache。*如果Memory Model或Barrier指令限制这种Reorder，则要求采用FIFO的写缓冲，或在遇到Barrier指令时Flush整个写缓冲*
+        - Load-Load Order：当前一条Load指令因为操作数未就绪*(RAW Hazard)*或Cache Miss而必须等待时，乱序执行的CPU可能先执行后一条Load指令以掩盖停顿。*如果Memory Model不允许这种乱序或程序员在两次Load之间插入了一条Barrier指令，那第一条Load执行完毕后，如果发现有Invalidate Message令后面要Load的Cache Line失效，就应该通过清空ROB撤销乱序执行的Load和后续指令然后重新执行*
+        - Load-Store Order：同上，当前一条Load因为各种原因等待时，后一条Store指令可能被先执行。*如果Memory Model或Barrier指令限制这种乱序，在推断执行的CPU中往往不用做任何事，因为Store指令是在提交阶段才更新存储器*
+        - Store-Load Order：当CPU和Cache间有写缓冲(Write Buffer)时，写操作会被放入写缓冲而不是更新Cache，这可能导致Load指令执行过后，写操作仍然对其他处理器不可见。*如果Memory Model或Barrier指令限制这种乱序，这要求在执行读操作之前，先Flush整个写缓冲，令结果写到Cache中，这里的开销非常大。由于开销非常大，现代处理器都允许这种乱序，且只有Full Barrier限制这种乱序*
+        - Store-Store Order：当CPU和Cache间有一个Non-FIFI或Coalescing的写缓冲时，如果前一个写操作导致Cache Miss或和其他写操作合并(因为写同一条Cache Line)，后一条结果可能先写入Cache。*如果Memory Model或Barrier指令限制这种乱序，则要求采用FIFO的写缓冲，或在遇到Barrier指令时Flush整个写缓冲*
         - Dependent Loads Order$^{[4,5]}$：即使处理器在语句"obj->field = new_value"和"g_obj = obj;"间插入Barrier指令，强制Flush写缓冲区，另一个处理器的相关读操作"obj = g_obj; value = obj->field"在取得新对象指针的同时仍然可能看到旧的字段值，因为新的字段值还在处理器的Invalidate Queue里面，要稍后才能处理。*更详细的描述下这种Corner Case：假设最初obj->field对应的Cache Line被CPU0和CPU1以Shared状态持有，g_obj对应的Cache Line以Exclusive状态被CPU0持有；CPU0写obj->field并用Barrier指令Flush写缓冲，会导致CPU1将一条Invalidate Message放入Invalidate Queue中并仍然以Shared状态持有obj->field，而CPU0以Modified状态持有更新过的obj->field；然后CPU0再更新g_obj，其对应的Cache Line会变成Modified状态；接下来，CPU1读取g_obj的Cache Miss被CPU0监听到并回以最新的g_obj值，但CPU1再尝试读取obj->field会取得旧的值，因为它的Invalidate Queue还有缓存的消息没被处理。在CPU1执行的两条Load之间插入一条Barrier指令可以强制CPU1处理Invalidate Queue中的所有消息，从而避免读取到旧的值。DEC Alpha是历史上唯一会遭遇这种问题的处理器，这个Corner Case影响了Linux Kernel的Data Dependency Barrier和C++标准中的std::memory_order_consume的设计；现代处理器不再有这种问题，所以对应的Barrier会生成空操作(但仍可能影响编译器优化$^{[16]}$)，至于这些处理器怎么避免Invalidate Queue导致的滞后，本文并未考证出结果(一种猜测：在每次最外层本地Cache发生Miss时处理Invalidate Queue中的所有消息 ?)*
     - 写原子性(Store Atomicity)$^{[1,3]}$
         1. Load Other's Store Early && Non-Causality：在NUMA和支持硬件多线程的UMA中，Cache Coherence Message可能先抵达较近的逻辑处理器，从而导致写操作被部分处理器先看到。*对照前面的例子，导致Non-Causality的是，thread 0对flag0的写操作比thread 1对flag1的写操作更晚被thread 2观察到，Invalidate Queue是一种可能的原因：假设最初flag0以Shared状态被所有CPU持有，flag1以Exclusive状态被CPU 1持有；CPU 0对flag0的写操作会导致CPU 1和CPU 2各收到一条Invalidate Message，然后CPU 1处理了该Message观察到了flag0的新值并将自己持有的flag1对应的Cache Line切换到Modified状态，而CPU 2因为Cache Miss从CPU 1处取得flag1的新值时，flag0对应的Invalidate Message可能还没被他处理，从而读到flag0在自己本地Cache中的旧值，这就导致因果性/传递性的丧失*
@@ -186,7 +186,7 @@
         4. Atomic Store：该情形甚至不允许转发自己的写缓冲中的值，很少见，所以更多是理论价值
 - #### 编译器怎样影响Memory Model的属性
 
-    在不改变单线程执行结果的前提下，编译器倾向于进行各种代码变换来实施优化，这些优化会改变存储器访问的顺序和次数，故前面列举的Load-Load/Store-Load Reorder等都可能发生。另外，一般来说，相同地址的内存访问受Data Dependence约束往往无法重排，但是一些激进优化也可能导致Dependent Loads Reorder$^{[16]}$
+    在不改变单线程执行结果的前提下，编译器倾向于进行各种代码变换来实施优化，这些优化会改变存储器访问的顺序和次数，故前面列举的Load-Load/Store-Load乱序等都可能发生。另外，一般来说，相同地址的内存访问受Data Dependence约束往往无法重排，但是一些激进优化也可能导致Dependent Loads乱序$^{[16]}$
 - #### Memory Consistency和Cache Coherence的区别
 
     Cache Coherence是多处理器的本地Cache导致多个数据副本在Cache和存储器间不一致的问题，Memory Model是多处理器和编译器优化导致存储器操作被多个处理器观察到的顺序不一致的问题。
@@ -222,18 +222,18 @@
         - 定义：将一个多线程程序各线程的操作按程序顺序(Program Order)交错在一起得到一个程序，如果这个单线程程序的执行结果和原来的多线程程序一样，我们就说执行程序的这个多处理器系统的Memory Model是Sequential Consistency的
             - *Leslie B. Lamport定义的SC$^{[18]}$：He first called a single processor (core) sequential if "the result of an execution is the same as if the operations had been executed in the order specified by the program." He then called a multiprocessor sequentially consistent if "the result of any execution is the same as if the operations of all processors (cores) were executed in some sequential order, and the operations of each individual processor (core) appear in this sequence in the order specified by its program."*
         - Memory Model的属性
-            - LL/LS/SL/SS/DL Reorder：不允许
+            - LL/LS/SL/SS/DL乱序：不允许
             - Store Atomicity：Load Own Store Early
 
 - #### 弱一致性模型(Relaxed Consistency Model / Weak Ordering)
 
     在SC的基础上，我们逐步放松各个属性的限制，会依次得到各种弱一致性模型
 
-    <u>首先允许SL Reorder</u>：
+    <u>首先允许SL乱序</u>：
     - `TSO(Total Store Order)`
         - Memory Model的属性
-            - SL Reorder：允许
-            - LL/LS/SS/DL Reorder：不允许
+            - SL乱序：允许
+            - LL/LS/SS/DL乱序：不允许
             - Store Atomicity：Load Own Store Eearly
         - 优点
             - 推断执行的CPU能高效实现TSO
@@ -243,57 +243,57 @@
                 - Store-Store Order：保持。*利用FIFO、Non-Coalescing的写缓冲区，每条Store指令是顺序更新存储器的*
             - Load/Store分别等效于Acquire/Release操作，实现锁时无需Barrier
 
-                Acquire指的是一个读操作，其后的Load/Store不允许Reorder到前面，而Release是一个写操作，其前的Load/Store不允许Reorder到后面。因为在TSO中，LL、LS乱序是不允许的，故Load指令直接可以用作Acquire；类似的，因为LS、SS乱序是不允许的，Store指令也可被用作Release。
+                Acquire指的是一个读操作，其后的Load/Store不允许乱序到前面，而Release是一个写操作，其前的Load/Store不允许乱序到后面。因为在TSO中，LL、LS乱序是不允许的，故Load指令直接可以用作Acquire；类似的，因为LS、SS乱序是不允许的，Store指令也可被用作Release。
 
-                实现SpinLock等互斥锁时，Acquire操作可以被用于Lock，Release操作可以被用于Unlock，它们一起避免了临界区内的共享存储器的读写被Reorder到临界区外，从而避免了Data-Race。由于在TSO中Load、Store分别等效于Acquire、Release，故在x86等系统中实现锁是不需要Barrier指令的。
+                实现SpinLock等互斥锁时，Acquire操作可以被用于Lock，Release操作可以被用于Unlock，它们一起避免了临界区内的共享存储器的读写被乱序到临界区外，从而避免了Data-Race。由于在TSO中Load、Store分别等效于Acquire、Release，故在x86等系统中实现锁是不需要Barrier指令的。
         - 评价：这是一种相对较强的Memory Model，被x86采用$^{[21]}$，程序员可以简单地把它抽象成带写缓冲区(Write Buffer)的多处理器系统
     - `PC(Processor Consistency)`
         - 和TSO的区别
             - Store Atomicity：Load Other's Write Early
         - 优点：相比TSO，放松了写一致性的要求，降低了Coherence Protocol上的开销
 
-    <u>进一步地，允许SS Reorder</u>：
+    <u>进一步地，允许SS乱序</u>：
     - `PST(Partial Store Order)`
         - 和TSO的区别
-            - SS Reorder：允许
+            - SS乱序：允许
         - 优点：相比TSO，允许Non-FIFO和Coalescing的写缓冲区，允许多个Store指令合并或重叠的执行
 
-    <u>再进一步地，允许LL/LS Reorder</u>：
+    <u>再进一步地，允许LL/LS乱序</u>：
     - `WO(Weak Ordering)`
         - 定义：在WO中，共享存储器被划分为Data(对应前文s_data)和Synchronizing Variable(对应前文sync_var)。对Synchronizing Variable的读写要保持相对顺序，对Data的读写允许乱序，但不能跨过对Synchronizing Variable的操作。
             - *Michel Dubols等人定义的WO$^{[19]}$：In a multiprocessor system, storage acceses are weakly ordered if 1) accesses to global synchronizing variables are strongly ordered and if 2) no access to a synchronizing variable is issued in a processor before all previous global data accesses have been performed and if 3) no access to global data is issued by a processor before a previous access to a synchronizing varible has been performed*
         - Memory Model的属性
-            - LL/LS/SL/SS Reorder：允许(Data读写)，不允许(Synchronizing Variable读写)
-            - DL Reorder：不允许
+            - LL/LS/SL/SS乱序：允许(Data读写)，不允许(Synchronizing Variable读写)
+            - DL乱序：不允许
             - Store Atomicity：Load Own Store Early
         - 评价：WO是一种粗粒度的Memory Model，程序员可以先把所有存在Data-Race的存储器标记为Synchronizing Variable来确保程序正确性，之后再优化，故易于编程。因为一般程序中Data的访问远多于Synchronizing Variable，其上的操作都可乱序，所以WO的性能也相当不错。**WO是一种在性能和可编程性上有很好折中的Memory Model**，本文后面还会多次提起它(在高级语言讨论中)
     - `RC(Release Consistency)`
         - 定义：在RC中，共享存储器操作被划分为`Ordinary`(对应前文s_data)和`Special`，其中Special进步一划分为`Sync`(对应前文sync_var)和`NSync`，Sync又包括Acquire和Release。Ordinary操作的乱序不允许向前跨过Acquire、不允许向后跨过Release，根据Special操作之间是Sequential Consistency或Processor Consistency，RC又可以进一步细分为`RCsc`和`RCpc`：(注意后者不要求Store Atomicity)
         - RCsc
             - Memory Model的属性
-                - LL/LS/SL/SS Reorder：允许(Ordinary操作)
-                - DL Reorder：不允许
+                - LL/LS/SL/SS乱序：允许(Ordinary操作)
+                - DL乱序：不允许
                 - Store Atomicity：Load Own Store Early
         - RCpc
             - Memory Model的属性
-                - LL/LS/SL/SS Reorder：允许(Ordinary操作)
-                - DL Reorder：不允许
+                - LL/LS/SL/SS乱序：允许(Ordinary操作)
+                - DL乱序：不允许
                 - Store Atomicity：Load Other's Store Early && Causality
             - *Kourosh Gharachorloo等人定义的RCpc$^{[20]}$：(A) before an ordinary LOAD or STORE access is allowed to perform with respect to any other processor, all previous acquire access must be performed, and (B) before a release access is allowed to perform with respect to any other processor, all previous ordinary LOAD and STORE accesses must be performed, and (C) special accesses are processor consistent with respect to one another*
         - 评价：当Ordinary操作(对应前文s_data)仅出现在临界区内时，用WO实现的锁和RCsc等价，比RCpc版本多了写原子性；在更复杂的Lockless算法中，RCpc提供了比WO更细粒度的重排序控制。**RC是一种提供细粒度控制的常见Memory Model**，我们之后还会看见它(在高级语言讨论中)
     - ARMv7$^{[7]}$
         - 定义：ARMv7的存储器被划分为`Strongly-Ordered`(对应前文sync_var)、`Device`和`Normal`，其中Normal又分为`Shareable`(对应前文s_data)和`Non-Shareable`(对应前文p_data)。Strongly-Ordered和Device上的操作之间不允许乱序，Normal的操作可以任意乱序。要限制Normal操作的顺序需要显示的Barrier指令
         - Memory Model的属性
-            - LL/LS/SL/SS Reorder：允许(Normal操作)，不允许(Strongly-Ordered/Device操作)
-            - DL Reorder：不允许
+            - LL/LS/SL/SS乱序：允许(Normal操作)，不允许(Strongly-Ordered/Device操作)
+            - DL乱序：不允许
             - Store Atomicity：Load Own Store Early
 
-    <u>最后，允许DL Reorder</u>：
+    <u>最后，允许DL乱序</u>：
     - DEC Alpha
         - Memory Model的属性
-            - LL/LS/SL/SS/DL Reorder：允许
+            - LL/LS/SL/SS/DL乱序：允许
             - Store Atomicity：Load Own Store Early
-        - 评价：DEC Alpha的生命期实际上在2001年已经宣告结束，我们之所以讨论它，是因为它是唯一一款允许Dependent Loads Reorder的多处理器，这使得它有几乎最Weak的Memory Model，而这又促成了Linux Kernel的Barrier设计(Data Dependency Barrier)以及C++标准的memory model设计(std::memory_order_consume)
+        - 评价：DEC Alpha的生命期实际上在2001年已经宣告结束，我们之所以讨论它，是因为它是唯一一款允许Dependent Loads乱序的多处理器，这使得它有几乎最Weak的Memory Model，而这又促成了Linux Kernel的Barrier设计(Data Dependency Barrier)以及C++标准的memory model设计(std::memory_order_consume)
             - *引自Paul E. McKenney$^{[4]}$：Alpha is interesting because, with the weakest memory ordering model, it reorders memory operations the most aggressively. It therefore has defined the Linux-kernel memory-ordering primitives, which must work on all CPUs, including Alpha. Understanding Alpha is therefore surprisingly important to the Linux kernel hacker*
 
 ## 高级语言中的Memory Model
