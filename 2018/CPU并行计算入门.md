@@ -200,11 +200,11 @@
         - 跨Lane重排：vget_low_f32/vtrn1q_f32/vzip1q_f32分别用于获取2个低SIMD Lane、转置、Zip。
 - 用内联汇编在ARMv7下做向量化
     - 由于ARMv7指令集寄存器个数更少、4通道SIMD指令的寻址方式受限，使用NEON Intrinsics函数依靠编译器输出的目标码质量往往不高，所以ARMv7下需要自己编写内联汇编来改进性能。[Arm NEON programming quick reference](https://community.arm.com/android-community/b/android/posts/arm-neon-programming-quick-reference)是一篇ARM内联汇编的很好的入门文章，在了解内联汇编的基本语法和ARMv7的寄存器/指令格式后，要将一个新算法向量化，可以先为它编写NEON Intrinsics版本的实现，直接用于ARMv8平台，另外再编译一份到ARMv7下然后反编译，根据反编译的结果，看编译器具体使用了什么样的指令，再在此基础上重新规划寄存器使用和做手工指令调度。
-    - 更多资料：
-        - [ARM® Cortex™-A Series Programmer’s Guide](https://www.macs.hw.ac.uk/~hwloidl/Courses/F28HS/Docu/DEN0013D_cortex_a_series_PG.pdf)，尤其是第17章Optimizing Code to Run on ARM Processors。
-        - [ARM® Compiler armasm User Guide](http://infocenter.arm.com/help/topic/com.arm.doc.dui0801g/DUI0801G_armasm_user_guide.pdf)，同时提供了ARMv7/ARMv8最全的指令参考(A32/A64)。
-        - [NEON Programmers Guide](https://static.docs.arm.com/den0018/a/DEN0018A_neon_programmers_guide_en.pdf)：6/7/8章有些简单的NEON例子。
-        - [ARM® Cortex®-A57 Software Optimization Guide](http://infocenter.arm.com/help/topic/com.arm.doc.uan0015b/Cortex_A57_Software_Optimization_Guide_external.pdf)，[ARM® Cortex®-A55 Software Optimization Guide](https://static.docs.arm.com/epm128372/20/arm_cortex_a55_software_optimization_guide_v2.pdf)：CPU微架构相关的优化建议。
+- 更多资料：
+    - [ARM® Cortex™-A Series Programmer’s Guide](https://www.macs.hw.ac.uk/~hwloidl/Courses/F28HS/Docu/DEN0013D_cortex_a_series_PG.pdf)，尤其是第17章Optimizing Code to Run on ARM Processors。
+    - [ARM® Compiler armasm User Guide](http://infocenter.arm.com/help/topic/com.arm.doc.dui0801g/DUI0801G_armasm_user_guide.pdf)，同时提供了ARMv7/ARMv8最全的指令参考(A32/A64)。
+    - [NEON Programmers Guide](https://static.docs.arm.com/den0018/a/DEN0018A_neon_programmers_guide_en.pdf)：6/7/8章有些简单的NEON例子。
+    - [ARM® Cortex®-A57 Software Optimization Guide](http://infocenter.arm.com/help/topic/com.arm.doc.uan0015b/Cortex_A57_Software_Optimization_Guide_external.pdf)，[ARM® Cortex®-A55 Software Optimization Guide](https://static.docs.arm.com/epm128372/20/arm_cortex_a55_software_optimization_guide_v2.pdf)：CPU微架构相关的优化建议。
 ### x86-64上的SIMD ###
 - x86-64上因为有[Intel Intrinsics Guide](https://software.intel.com/sites/landingpage/IntrinsicsGuide/#)这个功能强大的网站的存在，只需要按照本文原理一章讲的向量化方法，结合该网站中的指令集筛选(SSE4.2/AVX2)、指令类型筛选(Load/Store/Arithmetic/Bit Manipulation/Compare)功能，就能很好的向量化算法、选择合适的指令了。
 - 更多资料：
