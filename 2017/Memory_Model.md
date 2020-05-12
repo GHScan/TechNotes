@@ -249,7 +249,7 @@
         - 评价：这是一种相对较强的Memory Model，被x86采用$^{[21]}$，程序员可以简单地把它抽象成带写缓冲区(Write Buffer)的多处理器系统
     - `PC(Processor Consistency)`
         - 和TSO的区别
-            - Store Atomicity：Load Other's Write Early
+            - Store Atomicity：Load Other's Store Early
         - 优点：相比TSO，放松了写一致性的要求，降低了Coherence Protocol上的开销
 
     <u>进一步地，允许SS乱序</u>：
